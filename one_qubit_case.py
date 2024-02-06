@@ -1,7 +1,7 @@
 from typing import Callable
 
 import numpy as np
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import csv
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -90,11 +90,7 @@ def import_policy_from_csv(T: int, path='/Users/davidreiss/Desktop/Archiv/Quantu
         x = int(row["x"])
         prob = float(row["probability of action_1"])
 
-        print(t, x + T - 1, prob)
-
         data_array[t, x + T - 1] = prob
-
-    print(data_array)
 
     return data_array
 
@@ -358,45 +354,84 @@ class OptimalPolicyCalculations:
             self.calc_gauge_transformation(x, T, T, s)
 
         self.P_W_array = self.calc_reweighted_dynamics(T, s, self.g_prime_array)
-        self.policy_array = import_policy_from_csv(T, path='/Users/davidreiss/Desktop/Archiv/Quantum_PG_2/Plots/8_Final_policy_probabilities.csv')
 
         # plot reweighted dynamics
         self.plot_prob_distribution(T, self.P_W_array, "$P_W$ ")
+
+
+        ### plot policy (in the 1-qubit case w/o data RE-uploading)
+        ### as SANITY CHECK also in terms of variational parameters \theta_1, \theta_2, and \theta_3)
+        # import results of QRL algorithm
+        self.policy_array = import_policy_from_csv(T, path='/Users/davidreiss/Desktop/Archiv/Quantum_PG_2/Plots/8_Final_policy_probabilities.csv')
+        self.plot_mask = np.isnan(self.policy_array)
+        params_1_qubit_array = np.array([1.003468, 1.0284932]
+                                        + [0.8490333, 1.8261642, 1.0306203]#, 0.94512033]
+                                        + [2.0050492])#, -2.005049])
+        # input scalings, variational params, output scaling
+
+        # calculate amplitudes and phases from variational parameters
+        params_array = self.calc_params_array_1_qubit_case(params_1_qubit_array)
+
+        # plot policy and prediction from analytical calculation
         self.plot_prob_distribution(T, self.policy_array, "$\pi$ ")
+        self.plot_prob_distribution(T, self.softmax_policy(self.coords_array, params_array), "$P_\\theta$ ", masking=True)
 
-        params_array = np.array([1.003468, 1.0284932]
-                                + [0.8490333, 1.8261642, 1.0306203, 0.94512033]
-                                + [2.0050492])#, -2.005049])  # input scalings, variational params \theta, output scaling
-        self.plot_prob_distribution(T, self.softmax_policy(self.coords_array, params_array), "$P_\\theta$ ")
 
-        # fits to reweighted dynamics
+        ### fits to reweighted dynamics
+        no_pos_freqs = no_layers + 1
         no_freqs = 2 * no_layers + 1
 
-        optimized_params, residual_mean_squared_error = \
+        """
+        optimized_params_1, residual_mean_squared_error_1 = \
             fit_multivariate_func_leastsq(self.softmax_policy, self.coords_array, self.P_W_array,
-                                          params_initial_guess=np.ones(2 + 2 * no_freqs ** 2 + 1),
-                                          params_bounds=([(-np.inf, np.inf)] * (2 + no_freqs ** 2)
-                                                         + [(0., 2 * np.pi)] * (no_freqs ** 2)
+                                          params_initial_guess=np.ones(2 + 2 * no_pos_freqs * no_freqs + 1),
+                                          params_bounds=([(-np.inf, np.inf)] * (2 + no_pos_freqs * no_freqs)
+                                                         + [(0., 2 * np.pi)] * (no_pos_freqs * no_freqs)
                                                          + [(-np.inf, np.inf)]),
                                           no_independent_vars=2)
         optimized_params_2, residual_mean_squared_error_2 = \
             fit_multivariate_func_leastsq(self.softmax_policy, self.coords_array, self.policy_array,
-                                          params_initial_guess=np.ones(2 + 2 * no_freqs ** 2 + 1),
-                                          params_bounds=([(-np.inf, np.inf)] * (2 + no_freqs ** 2)
-                                                         + [(0., 2 * np.pi)] * (no_freqs ** 2)
+                                          params_initial_guess=np.ones(2 + 2 * no_pos_freqs * no_freqs + 1),
+                                          params_bounds=([(-np.inf, np.inf)] * (2 + no_pos_freqs * no_freqs)
+                                                         + [(0., 2 * np.pi)] * (no_pos_freqs * no_freqs)
+                                                         + [(-np.inf, np.inf)]),
+                                          no_independent_vars=2)
+        """
+        optimized_params_3, residual_mean_squared_error_3 = \
+            fit_multivariate_func_leastsq(self.softmax_policy_thetas, self.coords_array, self.P_W_array,
+                                          params_initial_guess=np.ones(2 + 3 + 1),
+                                          params_bounds=([(-np.inf, np.inf)] * 2
+                                                         + [(0., 2 * np.pi)] * 3
+                                                         + [(-np.inf, np.inf)]),
+                                          no_independent_vars=2)
+        optimized_params_4, residual_mean_squared_error_4 = \
+            fit_multivariate_func_leastsq(self.softmax_policy_thetas, self.coords_array, self.policy_array,
+                                          params_initial_guess=np.ones(2 + 3 + 1),
+                                          params_bounds=([(-np.inf, np.inf)] * 2
+                                                         + [(0., 2 * np.pi)] * 3
                                                          + [(-np.inf, np.inf)]),
                                           no_independent_vars=2)
 
-        vals_fitted_func_array = self.softmax_policy(self.coords_array, optimized_params)
-        vals_fitted_func_array_2 = self.softmax_policy(self.coords_array, optimized_params_2)
+        print(optimized_params_3, optimized_params_4)
 
-        #self.plot_prob_distribution(T, vals_fitted_func_array)
-        #self.plot_prob_distribution(T, vals_fitted_func_array_2)
+        """
+        vals_fitted_func_array_1 = self.softmax_policy(self.coords_array, optimized_params_1)
+        vals_fitted_func_array_2 = self.softmax_policy(self.coords_array, optimized_params_2)
+        """
+        vals_fitted_func_array_3 = self.softmax_policy_thetas(self.coords_array, optimized_params_3)
+        vals_fitted_func_array_4 = self.softmax_policy_thetas(self.coords_array, optimized_params_4)
+
+        #self.plot_prob_distribution(T, vals_fitted_func_array_1, masking=True)
+        #self.plot_prob_distribution(T, vals_fitted_func_array_2, masking=True)
+        self.plot_prob_distribution(T, vals_fitted_func_array_3, masking=True)
+        self.plot_prob_distribution(T, vals_fitted_func_array_4, masking=True)
 
         #self.plot_prob_distribution(T, np.abs(vals_fitted_func_array - self.P_W_array))
         #self.plot_prob_distribution(T, np.abs(vals_fitted_func_array_2 - self.policy_array))
 
+        """
         print(residual_mean_squared_error, residual_mean_squared_error_2)
+        """
 
 
     def calc_gauge_transformation(self, x: int, t: int, T: int, s: float) -> float:
@@ -442,7 +477,7 @@ class OptimalPolicyCalculations:
         return P_W_array
 
 
-    def plot_prob_distribution(self, T: int, prob_array: np.ndarray, title=""):
+    def plot_prob_distribution(self, T: int, prob_array: np.ndarray, title="", masking=False):
         """
         Calculates reweighted dynamics as function of t and x
         :param title:
@@ -450,6 +485,8 @@ class OptimalPolicyCalculations:
         :param prob_array:
         :return:
         """
+        if masking:
+            prob_array = np.where(self.plot_mask, np.nan, prob_array)
         prob_array = np.swapaxes(prob_array, 0, 1)
         # now indices x,t
         prob_array = prob_array[::-1, :]
@@ -509,56 +546,92 @@ class OptimalPolicyCalculations:
         pass
 
 
-    def calc_params_array_1_qubit_case(self, params_array: np.ndarray, in_terms_of_thetas=True,
-                                       thetas_array: np.ndarray = None):
+    def calc_params_array_1_qubit_case(self, params_1_qubit_array: np.ndarray, in_terms_of_thetas=True):
         """
 
-        :param params_array: contains lambdas, either thetas or INDEPENDENT amplitudes and phases, and w
+        :param params_1_qubit_array: contains lambdas, either thetas or INDEPENDENT amplitudes and phases, and w
         :return:
         """
         # asserts
         if in_terms_of_thetas:
+            thetas_array = params_1_qubit_array[2:-1]
             assert len(thetas_array) == 3, \
                 "amplitudes and phases in truncated Fourier series are determined in the 1-qubit case " \
-                "by 3 angles theta_1, theta_2, and theta_3, which must be supplied in theta_array"
-        # TODO: implement further asserts for params_array
+                "by 3 angles theta_1, theta_2, and theta_3, which must be supplied in params_1_qubit_array[2:-1]"
+        else:
+            assert len(params_1_qubit_array[2:-1]) == 6, \
+                "amplitudes and phases in truncated Fourier series are determined in the 1-qubit case " \
+                "by 3 non-zero amplitudes and 3 non-zero phases, which must be supplied in this order in " \
+                "params_1_qubit_array[2:-1]"
 
         if in_terms_of_thetas:
-            pass
+            theta_1 = thetas_array[0]
+            theta_2 = thetas_array[1]
+            theta_3 = thetas_array[2]
+
+            # complex-valued coefficients of truncated Fourier series
+            c_array = np.zeros(2 * 3, dtype=complex)
+            c_array[1 * 3 + 0] = 1 / 4 * (np.cos(theta_1) - np.cos(theta_2) - 1j * np.sin(theta_1) * np.sin(theta_2)) \
+                                 * np.cos(theta_3)
+            c_array[1 * 3 + 1] = - 1 / 2 * (np.sin(theta_1) * np.cos(theta_2) - 1j * np.sin(theta_2)) \
+                                 * np.sin(theta_3)
+            c_array[1 * 3 + 2] = 1 / 4 * (np.cos(theta_1) + np.cos(theta_2) - 1j * np.sin(theta_1) * np.sin(theta_2)) \
+                                 * np.cos(theta_3)
+
+            # corresponding amplitudes and phases in truncated Fourier series
+            a_array = 2 * np.abs(c_array)
+            phi_array = np.angle(c_array)
         else:
-            pass
-            # TODO: implement only symmetry relation between amplitudes and phases
-        
-        # TODO: implement function such that it can be used for fitting
-        #  and return params_array suitable for softmax_policy
+            a_array = np.zeros(2 * 3)
+            phi_array = np.zeros(2 * 2)
+
+            for i in range(3):
+                a_array[1 * 3 + i] = params_1_qubit_array[2 + i]
+                phi_array[1 * 2 + i] = params_1_qubit_array[2 + 3 + i]
+
+        # construct params_array suitable for function softmax_policy
+        params_array = np.zeros(2 + len(a_array) + len(phi_array) + 1)
+        params_array[:2] = params_1_qubit_array[:2]
+        params_array[2:-1] = np.concatenate((a_array, phi_array))
+        params_array[-1:] = params_1_qubit_array[-1:]
+
+        return params_array
 
 
     def softmax_policy(self, coords_array: np.ndarray, params_array: np.ndarray):
         # split params_array in "subarrays"
         lambda_array = params_array[:2]
-        theta_array = params_array[2:-1]
+        coeffs_array = params_array[2:-1]
         w = params_array[-1:]
+
+        no_pos_freqs = self.no_layers + 1
+        no_freqs = 2 * self.no_layers + 1
 
         # asserts
         if self.asserts:
-            pass
-            # TODO: implementation
+            assert len(params_array) == 2 + 2 * no_pos_freqs * no_freqs + 1, \
+                "length of params_array not correct; it must contain 2 input scaling parameters, " \
+                "(self.no_layers + 1) * (2 * self.no_layers + 1) amplitudes, " \
+                "(self.no_layers + 1) * (2 * self.no_layers + 1) phases, " \
+                "and 1 output scaling parameter"
+            # TODO: implement further asserts
 
         # computations
         g_t = np.arctan(lambda_array[0] * coords_array[..., 0])
         g_x = np.arctan(lambda_array[1] * coords_array[..., 1])
 
+        pos_freqs = np.arange(0, self.no_layers + 1)
         freqs = np.arange(- self.no_layers, self.no_layers + 1)
-        no_freqs = len(freqs)
-        freqs_t, freqs_x = np.meshgrid(freqs, freqs, indexing="ij")
+        freqs_t, freqs_x = np.meshgrid(pos_freqs, freqs, indexing="ij")
+        # -> increasing first index corresponds to increasing frequency for oscillations in t,
+        #    increasing second ----------------------------"---------------------------- in x
+        # NOTE: due to the symmetry cos(-x) = cos(x), one does NOT have to consider negative frequencies for
+        # either g_t or g_x; here g_t is chosen
 
-        # TODO: following amplitudes and phases are not directly given by what the thetas in the paper denote!
-        # TODO: implement that certain amplitudes and phases are related to each other (and thus not independent vars)
-        #   for the specific quantum circuit of the 1-qubit case
-        amplitudes = np.broadcast_to(theta_array[:no_freqs ** 2].reshape(no_freqs, no_freqs),
-                                     (*np.shape(coords_array)[:-1], no_freqs, no_freqs))
-        phases = np.broadcast_to(theta_array[no_freqs ** 2:].reshape(no_freqs, no_freqs),
-                                 (*np.shape(coords_array)[:-1], no_freqs, no_freqs))
+        amplitudes = np.broadcast_to(coeffs_array[:no_pos_freqs * no_freqs].reshape(no_pos_freqs, no_freqs),
+                                     (*np.shape(coords_array)[:-1], no_pos_freqs, no_freqs))
+        phases = np.broadcast_to(coeffs_array[no_pos_freqs * no_freqs:].reshape(no_pos_freqs, no_freqs),
+                                 (*np.shape(coords_array)[:-1], no_pos_freqs, no_freqs))
 
         avg_Z = amplitudes * np.cos(np.einsum(einsum_subscripts("ft,fx",
                                                                 "gt,gx",
@@ -577,6 +650,10 @@ class OptimalPolicyCalculations:
                                          avg_Z))
                     + 1)
         # TODO: check whether this last form is correct!
+
+
+    def softmax_policy_thetas(self, coords_array: np.ndarray, params_1_qubit_array: np.ndarray):
+        return self.softmax_policy(coords_array, self.calc_params_array_1_qubit_case(params_1_qubit_array))
 
 
     """
