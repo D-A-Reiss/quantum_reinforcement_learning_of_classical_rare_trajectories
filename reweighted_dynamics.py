@@ -5,19 +5,10 @@ from utilities import plot_prob_distribution
 
 # ROUTINES ######
 class ReweightedDynamics:
-    def __init__(self, T: int, s: float, no_layers: int):
-        self.asserts = True
-        self.no_layers = no_layers
-
+    def __init__(self, T: int, s: float):
         # initialize arrays
         self.g_prime_array = np.empty((T + 1, 2 * T + 1))
         self.g_prime_array[:] = np.nan
-
-        self.t_values = np.arange(T)
-        self.x_values = np.arange(- T + 1, T)
-
-        self.coords_array = np.array([[(t, x) for x in self.x_values]
-                                      for t in self.t_values])
 
         # calculate gauge transformation and reweighted dynamics
         self.calc_gauge_transformation(0, 0, T, s)
@@ -36,16 +27,17 @@ class ReweightedDynamics:
         self.value_func_array[:] = np.nan
         self.calc_value_function(0, 0, T, s, self.P_array, self.P_array)
 
-        self.plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P}$ ", diff=True)
+        plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P}$ ", diff=True)
 
         self.value_func_array = np.empty((T + 1, 2 * T + 1))
         self.value_func_array[:] = np.nan
         self.calc_value_function(0, 0, T, s, self.P_W_array, self.P_array)
 
-        self.plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P_W}$ ", diff=True)
+        plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P_W}$ ", diff=True)
 
 
-    def calc_weight_function(self, x: float, s: float):
+    @staticmethod
+    def calc_weight_function(x: float, s: float):
         return np.exp(- s * x**2)
 
 
@@ -78,13 +70,15 @@ class ReweightedDynamics:
         return g_prime_value
 
 
-    def calc_reweighted_dynamics(self, T: int, s: float, g_prime_array: np.ndarray):
+    @staticmethod
+    def calc_reweighted_dynamics(T: int, s: float, g_prime_array: np.ndarray):
         """
         Calculates reweighted dynamics, called P_W by Rose et al. ('21)
         :return:
         """
+        x_values = np.arange(- T + 1, T)
         weights_array = np.ones((T, 2 * T - 1))
-        weights_array[T - 1, :] = np.exp(- s * (self.x_values + 1)**2)  # weights for up-step in last step
+        weights_array[T - 1, :] = np.exp(- s * (x_values + 1)**2)  # weights for up-step in last step
 
         P_W_array = g_prime_array[1:, 2:] / g_prime_array[:-1, 1:-1] * weights_array
         # P_W_array only saves probabilities to go 1 step up (that to go 1 step down is given by normalization)
@@ -92,10 +86,11 @@ class ReweightedDynamics:
         return P_W_array
 
 
-    def calc_reward(self, x_t: int, x_prev_t: int, t: int, T: int, s: float,
+    @staticmethod
+    def calc_reward(x_t: int, x_prev_t: int, t: int, T: int, s: float,
                     p_theta_distribution: np.ndarray, p_distribution: np.ndarray):
         if t == T:
-            weight = self.calc_weight_function(x_t, s)
+            weight = ReweightedDynamics.calc_weight_function(x_t, s)
         else:
             weight = 1
 
