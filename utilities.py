@@ -160,6 +160,37 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
     """
 
 
+def save_obj(obj, file_name):
+    # save attributes of instance obj of a class to a file with name file_name
+    # obj: instance of a class
+    # file_name: string ending with '.npz'
+    attributes = obj.__dict__
+    np.savez(file_name, **attributes)
+
+
+def load_and_restore_obj(cls, file_name):
+    # loads attributes of an instance of class cls from a file with name file_name,
+    # creates a new instance of class cls and updates its attributes accordingly
+    # cls: class
+    # file_name: string ending with '.npz'
+    data = np.load(file_name, allow_pickle=True)
+    obj = cls.__new__(cls)
+    attributes = {f: data[f] for f in data.files}  # dict comprehension
+    obj.__dict__.update(attributes)
+    return obj
+
+def restore_or_compute_obj(class_type, generator_function, filename: str) -> any:
+    try:
+        return load_and_restore_obj(class_type, filename)
+    except:
+        pass
+
+    computed_object = generator_function()
+    save_obj(computed_object, filename)
+
+    return computed_object
+
+
 class ProgressBar:
     def __init__(self, total: int | None = None, task_description: str = ""):
         self.start_time = time.time()
