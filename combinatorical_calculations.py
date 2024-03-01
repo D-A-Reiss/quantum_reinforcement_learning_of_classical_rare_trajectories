@@ -88,11 +88,11 @@ class CombinatoricalCalculations:
     # some exemplary observables for trajectories
     @staticmethod
     def calculate_moments_at_each_time(trajectories_array_x: np.ndarray, moment_up_to=2):
+        pass
 
 
-
-   @staticmethod
-   def calculate_moments_integrated_over_time():
+    @staticmethod
+    def calculate_moments_integrated_over_time():
         pass
 
 
