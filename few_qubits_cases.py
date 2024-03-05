@@ -5,8 +5,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import orqviz
 
-from typing import Callable
+from typing import Callable, List
 from scipy.optimize import minimize
+from sympy.physics.quantum import TensorProduct
 
 from reweighted_dynamics import ReweightedDynamics
 from utilities import import_policy_from_csv, einsum_subscripts, ProgressBar, plot_prob_distribution
@@ -26,6 +27,7 @@ mpl.rcParams["font.size"] = font_size
 mpl.rcParams["xtick.labelsize"] = global_size
 mpl.rcParams["ytick.labelsize"] = global_size
 plt.rcParams.update({"font.size": font_size})
+plt.rcParams['axes.unicode_minus'] = False
 
 sigma_x = np.array([[0., 1.], [1., 0.]])
 sigma_y = np.array([[0., - 1j], [1j, 0.]])
@@ -41,6 +43,13 @@ v_x_dagger = v_x
 
 
 # ROUTINES #####
+def tensor_prod(a, b, sympy_expr=False):
+    if sympy_expr:
+        return TensorProduct(a, b)
+    else:
+        return np.kron(a, b)
+
+
 def r_n(alpha: float | sp.Symbol, n: str, sympy_expr=False) -> np.ndarray:
     """
     Compute rotations on Bloch sphere, if sympy_expr == True the symbolic (SymPy) expressions, else the numerical ones.
@@ -68,6 +77,24 @@ def r_n(alpha: float | sp.Symbol, n: str, sympy_expr=False) -> np.ndarray:
         return sp.cos(alpha / 2) * identity - 1j * sp.sin(alpha / 2) * sigma
     else:
         return np.cos(alpha / 2) * identity - 1j * np.sin(alpha / 2) * sigma
+
+
+def r_n_multi_qubit(tot_no_qubits: int, acting_on_qubit_no: int, alpha: float | sp.Symbol, n: str, sympy_expr=False) \
+        -> np.ndarray:
+    assert tot_no_qubits > 1, "tot_no_qubits must be greater than 1"
+
+    identity = np.identity(2) if not sympy_expr else sp_identity
+    single_qubit_r_n = r_n(alpha, n, sympy_expr=sympy_expr)
+
+    def choose_nth_matrix(n):
+        return single_qubit_r_n if acting_on_qubit_no == n else identity
+
+    matrix = tensor_prod(choose_nth_matrix(1), choose_nth_matrix(2), sympy_expr=sympy_expr)
+
+    for n in range(3, tot_no_qubits + 1):
+        matrix = tensor_prod(matrix, choose_nth_matrix(n), sympy_expr=sympy_expr)
+
+    return matrix
 
 
 def ctrl_z(sympy_expr=False):
@@ -203,7 +230,7 @@ def calc_mean_squared_difference(data_array_1: np.ndarray, data_array_2: np.ndar
 
 # CLASSES
 class FourierCoeffs:
-    def __init__(self, no_layers: int):
+    def __init__(self, no_qubits: int, no_layers: int, no_random_samples: int):
         """
         # choose all theta angles randomly
         #theta_vector = 2 * np.pi * np.random.random(size=4 * no_layers)
@@ -230,12 +257,29 @@ class FourierCoeffs:
         print(np.round(self.calc_fourier_coeffs_2D_FFT(expectation_val_z, x, t, 1), 8))
         """
 
-        FourierCoeffs.visualize_fourier_coeffs_1_qubit_n_layers(3, sp_sigma_z, 50)
+        if no_qubits == 1:
+            obs = sp_sigma_z
+        elif no_qubits == 2:
+            obs = tensor_prod(sp_sigma_z, sp_sigma_z, sympy_expr=True)
+        else:
+            pass
+            # implement this if needed
 
-        # TODO: implement formula for Fourier coefficients with variable no. of data uploading layers and
-        #  check whether for several combinations of random angles/parameters they are non-zero
-        # TODO: think about how to show the result of this numerical experiment in general/analytically or
-        #  how to argue for the result
+        """
+        expectation_val_z_0_z_1 = self.calc_expectation_value_2_qubits_n_layers(no_layers, obs)
+        print(expectation_val_z_0_z_1)
+        print(sp.simplify(expectation_val_z_0_z_1))
+        """
+
+        FourierCoeffs.visualize_fourier_coeffs_m_qubits_n_layers(no_qubits, no_layers, obs, no_random_samples)
+
+
+    @staticmethod
+    def param_subs(expr: sp.Expr | sp.Matrix, subs_dict: dict, symbolic: bool):
+        if symbolic:
+            return expr.subs(subs_dict)
+        else:
+            return expr.evalf(subs=subs_dict, chop=1e-16)
 
 
     @staticmethod
@@ -244,7 +288,6 @@ class FourierCoeffs:
 
         :param thetas:
         :param four_thetas:
-        :param sympy_for_thetas:
         :param dagger:
         :return:
         """
@@ -330,27 +373,107 @@ class FourierCoeffs:
         else:
             n_max = no_layers
 
-        def param_subs(expr: sp.Expr | sp.Matrix, subs_dict: dict, symbolic: bool):
-            if symbolic:
-                return expr.subs(subs_dict)
-            else:
-                return expr.evalf(subs=subs_dict, chop=1e-16)
 
         for n in range(n_max):
             subs_dict = {alpha: thetas[4 * n + 0], beta: thetas[4 * n + 1],
                          gamma: thetas[4 * n + 2], delta: thetas[4 * n + 3]}
 
-            unitary = param_subs(unitary_1_layer, subs_dict, symbolic) @ unitary
-            unitary_dagger = unitary_dagger @ param_subs(unitary_1_layer_dagger, subs_dict, symbolic)
+            unitary = FourierCoeffs.param_subs(unitary_1_layer, subs_dict, symbolic) @ unitary
+            unitary_dagger = unitary_dagger @ FourierCoeffs.param_subs(unitary_1_layer_dagger, subs_dict, symbolic)
 
         if np.all(np.array(obs) == sigma_z):
             subs_dict = {alpha: thetas[-3], beta: thetas[-2], gamma: thetas[-1]}
 
-            unitary = param_subs(unitary_last_layer, subs_dict, symbolic) @ unitary
-            unitary_dagger = unitary_dagger @ param_subs(unitary_last_layer_dagger, subs_dict, symbolic)
+            unitary = FourierCoeffs.param_subs(unitary_last_layer, subs_dict, symbolic) @ unitary
+            unitary_dagger = unitary_dagger @ FourierCoeffs.param_subs(unitary_last_layer_dagger, subs_dict, symbolic)
 
         expectation_val = (unitary_dagger @ obs @ unitary)[0, 0]
         # [0, 0] because initial state of quantum circuit is |0>
+
+        return expectation_val
+        # return sp.simplify(expectation_val)
+
+
+    @staticmethod
+    def calc_unitary_transform_2_qubits_1_layer(thetas: np.ndarray, dagger: bool):
+        """
+
+        :param thetas:
+        :param dagger:
+        :return:
+        """
+        # asserts
+        assert len(thetas) == 4, "if four_thetas == True, thetas must be of length 4"
+
+        # compute unitary transform for 1 layer
+        x, t = sp.symbols("x, t")
+
+        if not dagger:
+            unitary_transform = (ctrl_z(sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, thetas[3], "z", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, thetas[2], "y", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, x, "x", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 1, thetas[1], "z", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 1, thetas[0], "y", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 1, t, "x", sympy_expr=True))
+
+        else:
+            unitary_transform = (r_n_multi_qubit(2, 1, -t, "x", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 1, -thetas[0], "y", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 1, -thetas[1], "z", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, -x, "x", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, -thetas[2], "y", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, -thetas[3], "z", sympy_expr=True)
+                                 @ ctrl_z(sympy_expr=True))
+
+        return unitary_transform
+
+
+    @staticmethod
+    def calc_expectation_value_2_qubits_n_layers(no_layers: int, obs: np.ndarray, theta_vals: np.ndarray = None):
+        """
+
+        :param no_layers:
+        :param obs:
+        :param theta_vals:
+        :return:
+        """
+        # asserts
+        assert no_layers >= 1, "no_layers >= 1 is required"
+        assert np.shape(obs) == (4, 4) and np.all(np.conj(np.transpose(obs)) == np.array(obs)), \
+            "obs must be a Hermitian 4x4-matrix"
+
+        if theta_vals is not None:
+            assert len(theta_vals) == 4 * no_layers, "thetas must be of length 4 * no_layers"
+
+        # compute generic forms of unitary transforms for layers
+        alpha, beta, gamma, delta = sp.symbols("alpha, beta, gamma, delta")
+        generic_thetas = np.array([alpha, beta, gamma, delta])
+
+        unitary_1_layer = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas, False)
+        unitary_1_layer_dagger = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas, True)
+
+        # multiply unitary transforms for layers
+        if theta_vals is None:
+            no_thetas = 4 * no_layers
+            thetas = sp.symbols("theta1:" + str(no_thetas + 1))
+            symbolic = True
+        else:
+            thetas = theta_vals
+            symbolic = False
+
+        unitary = np.identity(4)
+        unitary_dagger = np.identity(4)
+
+        for n in range(no_layers):
+            subs_dict = {alpha: thetas[4 * n + 0], beta: thetas[4 * n + 1],
+                         gamma: thetas[4 * n + 2], delta: thetas[4 * n + 3]}
+
+            unitary = FourierCoeffs.param_subs(unitary_1_layer, subs_dict, symbolic) @ unitary
+            unitary_dagger = unitary_dagger @ FourierCoeffs.param_subs(unitary_1_layer_dagger, subs_dict, symbolic)
+
+        expectation_val = (unitary_dagger @ obs @ unitary)[0, 0]
+        # [0, 0] because initial state of quantum circuit is |00>
 
         return expectation_val
         # return sp.simplify(expectation_val)
@@ -376,7 +499,7 @@ class FourierCoeffs:
 
 
     @staticmethod
-    def visualize_fourier_coeffs_1_qubit_n_layers(no_layers: int, obs: np.ndarray, no_random_samples=100):
+    def visualize_fourier_coeffs_m_qubits_n_layers(no_qubits: int, no_layers: int, obs: np.ndarray, no_random_samples=100):
         """
         This function consists of code adjusted from the PennyLane demo by Schuld and Meyer
         (https://pennylane.ai/qml/demos/tutorial_expressivity_fourier_series/#part-iii-sampling-fourier-coefficients).
@@ -388,37 +511,72 @@ class FourierCoeffs:
         coeffs = []
 
         # compute Fourier coefficients
+        progress_bar = ProgressBar(no_random_samples, "Fourier coefficients of 1-qubit-PQC with " + str(no_layers) +
+                                   " layers for different random choices of thetas")
+
         for i in range(no_random_samples):
-            thetas = 2 * np.pi * np.random.random(4 * no_layers - 1)
-            expectation_val_z = FourierCoeffs.calc_expectation_value_1_qubit_n_layers(no_layers, obs, theta_vals=thetas)
+            progress_bar.update(i)
+
+            if no_qubits == 1:
+                thetas = 2 * np.pi * np.random.random(4 * no_layers - 1)
+                expectation_val_z = FourierCoeffs.calc_expectation_value_1_qubit_n_layers(no_layers, obs,
+                                                                                          theta_vals=thetas)
+
+            elif no_qubits == 2:
+                thetas = 2 * np.pi * np.random.random(4 * no_layers)
+                expectation_val_z = FourierCoeffs.calc_expectation_value_2_qubits_n_layers(no_layers, obs,
+                                                                                           theta_vals=thetas)
 
             coeffs_sample = FourierCoeffs.calc_fourier_coeffs_2D_FFT(expectation_val_z, x, t, no_layers)
             coeffs.append(coeffs_sample)
+
+        progress_bar.finish()
 
         coeffs = np.array(coeffs)
         coeffs_real = np.real(coeffs)
         coeffs_imag = np.imag(coeffs)
 
+        print(coeffs)
+
         # plot Fourier coefficients
         no_random_samples, no_x, no_t = np.shape(coeffs)
 
-        fig, ax = plt.subplots(no_x, no_t, figsize=(2 * no_t, 2 * no_x), squeeze=False)
+        if no_layers == 1:
+            fig, ax = plt.subplots(no_x, no_t, figsize=(2 * no_t, 2 * no_x), squeeze=False)
 
-        for m in range(no_x):
-            for n in range(no_t):
-                ax[m, n].set_title("$c_{" + str(m - no_layers) + str(n) + "}$")
-                ax[m, n].scatter(coeffs_real[:, m, n], coeffs_imag[:, m, n], s=20,
-                                 facecolor='white', edgecolor='red')
-                ax[m, n].set_aspect("equal")
-                ax[m, n].set_ylim(-1, 1)
-                ax[m, n].set_xlim(-1, 1)
+            for m in range(no_x):
+                for n in range(no_t):
+                    ax[m, n].set_title("$c_{" + str(m - no_layers) + str(n) + "}$")
+                    ax[m, n].scatter(coeffs_real[:, m, n], coeffs_imag[:, m, n], s=20,
+                                     facecolor='white', edgecolor='red')
+                    ax[m, n].set_aspect("equal")
+                    ax[m, n].set_ylim(-1, 1)
+                    ax[m, n].set_xlim(-1, 1)
+
+        else:
+            fig, ax = plt.subplots(no_t, no_x, figsize=(2 * no_x, 2 * no_t), squeeze=False)
+
+            for m in range(no_x):
+                for n in range(no_t):
+                    ax[n, m].set_title("$c_{" + str(m - no_layers) + str(n) + "}$")
+                    ax[n, m].scatter(coeffs_real[:, m, n], coeffs_imag[:, m, n], s=20,
+                                     facecolor='white', edgecolor='green')
+                    ax[n, m].set_aspect("equal")
+                    ax[n, m].set_ylim(-1, 1)
+                    ax[n, m].set_xlim(-1, 1)
 
         plt.tight_layout(pad=0.5)
+
+        # save plot
+        fig.savefig("Fourier_coeffs_" + str(no_qubits) + "_qubits_" + str(no_layers) + "_layers.pdf",
+                    bbox_inches="tight")
+
         plt.show()
 
 
 class ReinforcementLearningFits:
-    def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int, set_title=True):
+    def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int, set_title=True,
+                 theta_fits=True):
         # save inputs
         self.T = T
         self.no_layers = no_layers
@@ -454,41 +612,60 @@ class ReinforcementLearningFits:
 
         ### fits to reweighted dynamics
         ## fits in terms of variational parameters thetas
-        # fits starting from symbolic computation of Fourier coefficients as functions of thetas
-        self.fit_and_plot_softmax_policy(self.softmax_policy_thetas, self.coords_array, P_W_array, T, no_fits,
-                                         no_thetas=3, set_title=set_title, title="$\pi_\\theta$ Mathematica",
-                                         plot_mask=plot_mask, plot_diff=True)
+        if theta_fits:
+            # fits starting from symbolic computation of Fourier coefficients as functions of thetas
+            if no_layers == 1:
+                self.vals_fitted_func_1_qubit_1_layer_thetas, self.optimized_params_1_qubit_1_layer_thetas, \
+                    self.residual_mean_squared_errors_1_qubit_1_layer_thetas = \
+                    self.fit_and_plot_softmax_policy(self.softmax_policy_1_qubit_1_layer_thetas, self.coords_array,
+                                                     P_W_array, T, no_layers, no_fits, no_thetas=3,
+                                                     set_title=set_title, title="Mathematica_$\pi_\\theta$",
+                                                     plot_mask=plot_mask, plot_diff=True)
 
-        # fits starting from SymPy expressions
+            # fits starting from SymPy expressions
 
-        self.softmax_policy_lambdified = \
-            self.softmax_policy_from_sympy_expr(FourierCoeffs.calc_expectation_value_1_qubit_n_layers(self.no_layers,
-                                                                                                      sp_sigma_z),
-                                                self.no_layers)
+            self.softmax_policy_lambdified = \
+                self.softmax_policy_from_sympy_expr(FourierCoeffs.calc_expectation_value_1_qubit_n_layers(self.no_layers,
+                                                                                                          sp_sigma_z),
+                                                    self.no_layers)
 
-        no_fits = 1
-        self.fit_and_plot_softmax_policy(self.softmax_policy_from_lambdified_expr, self.coords_array, P_W_array, T,
-                                         no_fits, no_thetas=(4 * self.no_layers - 1), set_title=set_title,
-                                         title="$\pi_\\theta$ SymPy", plot_mask=plot_mask, plot_diff=True)
+            self.vals_fitted_func_from_sympy, self.optimized_params_from_sympy, \
+                self.residual_mean_squared_errors_from_sympy = \
+                self.fit_and_plot_softmax_policy(self.softmax_policy_from_lambdified_expr, self.coords_array, P_W_array,
+                                                 T, no_layers, no_fits, no_thetas=(4 * self.no_layers - 1),
+                                                 set_title=set_title, title="SymPy_$\pi_\\theta$",
+                                                 plot_mask=plot_mask, plot_diff=True)
 
         ## fits in terms of Fourier coefficients (amplitudes and phases)
         no_pos_freqs = no_layers + 1
         no_freqs = 2 * no_layers + 1
 
-        no_fits = 1
-        self.fit_and_plot_softmax_policy(self.softmax_policy, self.coords_array, P_W_array, T, no_fits,
-                                         no_amplitudes=no_pos_freqs * no_freqs, no_phases=no_pos_freqs * no_freqs,
-                                         set_title=set_title, title="$\pi$ amplitudes and phases general", 
-                                         plot_mask=plot_mask, plot_diff=True)
+        if no_layers == 1:
+            self.vals_fitted_func_1_qubit_1_layer_fourier_coeffs, self.optimized_params_1_qubit_1_layer_fourier_coeffs, \
+                self.residual_mean_squared_errors_1_qubit_1_layer_fourier_coeffs = \
+                self.fit_and_plot_softmax_policy(self.softmax_policy_1_qubit_1_layer_fourier_coeffs, self.coords_array,
+                                                 P_W_array, T, no_layers, no_fits, no_amplitudes=3, no_phases=3,
+                                                 set_title=set_title, title="Fourier_coeffs_restricted_$\pi$",
+                                                 plot_mask=plot_mask, plot_diff=True)
 
-        self.fit_and_plot_softmax_policy(self.softmax_policy_1_qubit, self.coords_array, P_W_array, T, no_fits,
-                                         no_amplitudes=3, no_phases=3,
-                                         set_title=set_title, title="$\pi$ amplitudes and phases 1 qubit",
-                                         plot_mask=plot_mask, plot_diff=True)
+            self.vals_fitted_func_2_qubits_1_layer_fourier_coeffs, \
+                self.optimized_params_2_qubits_1_layer_fourier_coeffs, \
+                self.residual_mean_squared_errors_2_qubits_1_layer_fourier_coeffs = \
+                self.fit_and_plot_softmax_policy(self.softmax_policy_2_qubits_1_layer_fourier_coeffs, self.coords_array,
+                                                 P_W_array, T, no_layers, no_fits, no_amplitudes=1, no_phases=0,
+                                                 set_title=set_title, title="Fourier_coeffs_2_qubits_restricted_$\pi$",
+                                                 plot_mask=plot_mask, plot_diff=True)
+
+        self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_fourier_coeffs, \
+            self.residual_mean_squared_errors_1_qubit_fourier_coeffs = \
+            self.fit_and_plot_softmax_policy(self.softmax_policy, self.coords_array, P_W_array, T, no_layers, no_fits,
+                                             no_amplitudes=no_pos_freqs * no_freqs, no_phases=no_pos_freqs * no_freqs,
+                                             set_title=set_title, title="Fourier_coeffs_general_$\pi$",
+                                             plot_mask=plot_mask, plot_diff=True)
 
 
     @staticmethod
-    def calc_params_array_1_qubit_case(params_1_qubit_array: np.ndarray, in_terms_of_thetas=True):
+    def calc_params_array_1_qubit_1_layer(params_1_qubit_array: np.ndarray, in_terms_of_thetas=True):
         """
 
         :param params_1_qubit_array: contains lambdas, either thetas or INDEPENDENT amplitudes and phases, and w
@@ -499,11 +676,11 @@ class ReinforcementLearningFits:
         if in_terms_of_thetas:
             thetas_array = params_1_qubit_array[2:-1]
             assert len(thetas_array) == 3, \
-                "amplitudes and phases in truncated Fourier series are determined in the 1-qubit case " \
+                "amplitudes and phases in truncated Fourier series are determined in the 1-qubit-1-layer case " \
                 "by 3 angles theta_1, theta_2, and theta_3, which must be supplied in params_1_qubit_array[2:-1]"
         else:
             assert len(params_1_qubit_array[2:-1]) == 6, \
-                "amplitudes and phases in truncated Fourier series are determined in the 1-qubit case " \
+                "amplitudes and phases in truncated Fourier series are determined in the 1-qubit-1-layer case " \
                 "by 3 non-zero amplitudes and 3 non-zero phases, which must be supplied in this order in " \
                 "params_1_qubit_array[2:-1]"
 
@@ -537,6 +714,58 @@ class ReinforcementLearningFits:
         params_array[:2] = params_1_qubit_array[:2]
         params_array[2:-1] = np.concatenate((a_array, phi_array))
         params_array[-1:] = params_1_qubit_array[-1:]
+
+        return params_array
+
+
+    @staticmethod
+    def calc_params_array_2_qubits_1_layer(params_2_qubits_array: np.ndarray, in_terms_of_thetas=True):
+        """
+
+        :param params_2_qubits_array: contains lambdas, either thetas or INDEPENDENT amplitudes and phases, and w
+        :param in_terms_of_thetas:
+        :return:
+        """
+        # asserts
+        if in_terms_of_thetas:
+            raise NotImplementedError("implementation of case in_terms_of_thetas == True hasn't been finished yet")
+            thetas_array = params_2_qubits_array[2:-1]
+            assert len(thetas_array) == 4, \
+                "amplitudes and phases in truncated Fourier series are determined in the 2-qubits-1-layer case " \
+                "by 4 angles theta_1, theta_2, theta_3, and theta_4 which must be supplied in " \
+                "params_2_qubits_array[2:-1]"
+        else:
+            assert len(params_2_qubits_array[2:-1]) == 1, \
+                "amplitudes and phases in truncated Fourier series are determined in the 2-qubits-1-layer case " \
+                "by 1 non-zero amplitudes, which must be supplied in this order in params_2_qubits_array[2:-1]"
+
+        if in_terms_of_thetas:
+            theta_1 = thetas_array[0]
+            theta_2 = thetas_array[1]
+            theta_3 = thetas_array[2]
+            theta_4 = thetas_array[3]
+
+            # complex-valued coefficients of truncated Fourier series
+            c_array = np.zeros(2 * 3, dtype=complex)
+            #c_array[1 * 3 + 0] =
+            #c_array[1 * 3 + 2] =
+            # TODO: to be computed and implemented
+
+            # corresponding amplitudes and phases in truncated Fourier series
+            a_array = 2 * np.abs(c_array)
+            phi_array = np.angle(c_array)
+        else:
+            a_array = np.zeros(2 * 3)
+            phi_array = np.zeros(2 * 3)
+
+            a_array[1 * 3 + 0] = params_2_qubits_array[2]
+            a_array[1 * 3 + 2] = params_2_qubits_array[2]
+
+        # construct params_array suitable for function softmax_policy
+        params_array = np.zeros(2 + len(a_array) + len(phi_array) + 1)
+        params_array[:2] = params_2_qubits_array[:2]
+        params_array[2:-1] = np.concatenate((a_array, phi_array))
+        params_array[-1:] = params_2_qubits_array[-1:]
 
         return params_array
 
@@ -600,25 +829,38 @@ class ReinforcementLearningFits:
         # TODO: check whether this last form is correct!
 
 
-    def softmax_policy_thetas(self, coords_array: np.ndarray, params_1_qubit_array: np.ndarray):
+    def softmax_policy_1_qubit_1_layer_thetas(self, coords_array: np.ndarray, params_1_qubit_array: np.ndarray):
         """
 
         :param coords_array:
         :param params_1_qubit_array:
         :return:
         """
-        return self.softmax_policy(coords_array, self.calc_params_array_1_qubit_case(params_1_qubit_array))
+        return self.softmax_policy(coords_array, self.calc_params_array_1_qubit_1_layer(params_1_qubit_array,
+                                                                                        in_terms_of_thetas=True))
 
 
-    def softmax_policy_1_qubit(self, coords_array: np.ndarray, params_1_qubit_array: np.ndarray):
+    def softmax_policy_1_qubit_1_layer_fourier_coeffs(self, coords_array: np.ndarray, params_1_qubit_array: np.ndarray):
         """
 
         :param coords_array:
         :param params_1_qubit_array:
         :return:
         """
-        return self.softmax_policy(coords_array, self.calc_params_array_1_qubit_case(params_1_qubit_array,
-                                                                                     in_terms_of_thetas=False))
+        return self.softmax_policy(coords_array, self.calc_params_array_1_qubit_1_layer(params_1_qubit_array,
+                                                                                        in_terms_of_thetas=False))
+
+    def softmax_policy_2_qubits_1_layer_fourier_coeffs(self, coords_array: np.ndarray,
+                                                       params_2_qubits_array: np.ndarray):
+        """
+
+        :param coords_array:
+        :param params_2_qubits_array:
+        :return:
+        """
+        return self.softmax_policy(coords_array, self.calc_params_array_2_qubits_1_layer(params_2_qubits_array,
+                                                                                         in_terms_of_thetas=False))
+
 
     @staticmethod
     def softmax_policy_from_sympy_expr(expectation_val: sp.Expr, no_layers: int) \
@@ -667,7 +909,7 @@ class ReinforcementLearningFits:
 
     @staticmethod
     def fit_and_plot_softmax_policy(softmax_policy: Callable, coords_array: np.ndarray, data_array: np.ndarray,
-                                    T: int, no_fits: int, no_thetas: int = None, no_amplitudes: int = None,
+                                    T: int, no_layers: int, no_fits: int, no_thetas: int = None, no_amplitudes: int = None,
                                     no_phases: int = None, set_title=False, title="", plot_mask: np.ndarray = None,
                                     plot_diff=True):
         """
@@ -692,7 +934,8 @@ class ReinforcementLearningFits:
         optimized_params_list = []
 
         # initialize instance progress_bar of utility class ProgressBar
-        progress_bar = ProgressBar(no_fits, "Fits of policy starting from different random choices of parameters")
+        progress_bar = ProgressBar(no_fits, "Fits of " + title +
+                                   " starting from different random choices of parameters")
 
         for i in range(no_fits):
             # update progress_bar due to progress
@@ -736,7 +979,7 @@ class ReinforcementLearningFits:
 
         if plot_diff:
             plot_prob_distribution(T, np.abs(vals_fitted_func_array - data_array),
-                                   set_title=set_title, title=title,
+                                   set_title=set_title, title="1_qubit_" + str(no_layers) + "_layers_" + str(no_fits) + "_fits_" + title,
                                    plot_mask=plot_mask, diff=plot_diff)
         else:
             plot_prob_distribution(T, vals_fitted_func_array,
@@ -747,6 +990,132 @@ class ReinforcementLearningFits:
 
         if no_fits > 1:
             print("second smallest residual_mean_squared_error: ",
-                  min(residual_mean_squared_error_list.remove(residual_mean_squared_error_min)))
+                  np.partition(residual_mean_squared_error_list, 1)[1])
 
-        return
+        return vals_fitted_func_array, optimized_params_min, residual_mean_squared_error_list
+
+
+class PolicyEvaluation:
+    def __init__(self, T: int, policy_array: np.ndarray, no_trajectories: int, s: float):
+        # IDEA: implement this class to evaluate the policy policy_array by computing:
+        # - average return of no_trajectories trajectories
+        # - probability to generate a rare trajectory (random-walk bridge) for no_trajectories trajectories
+        self.trajectories_x_array = self.calc_trajectories_x_array(no_trajectories, T, policy_array)
+
+        self.mean_return_values, self.std_return_values = self.calc_mean_std_return(self.trajectories_x_array, T,
+                                                                                    policy_array, s)
+        print(self.mean_return_values, self.std_return_values)
+
+        self.prob_rare_trajectory = self.calc_prob_rare_trajectory(self.trajectories_x_array, T)
+        print(self.prob_rare_trajectory)
+
+
+    @staticmethod
+    def generate_trajectory_with_policy(T: int, policy_array: np.ndarray):
+        x = 0
+        x_list = [x]
+
+        for t in range(1, T + 1):
+            prob_plus_1 = policy_array[t - 1, x_list[t - 1] + T - 1]
+            delta_x = np.random.choice([+1, -1], p=[prob_plus_1, 1 - prob_plus_1])
+            x = x + delta_x
+            x_list.append(x)
+
+        return x_list
+
+
+    @staticmethod
+    def calc_trajectories_x_array(no_trajectories: int, T: int, policy_array: np.ndarray):
+        # initialize array
+        trajectories_x_array = np.zeros((no_trajectories, T + 1), dtype=int)
+
+        # compute array entries
+        for n in range(no_trajectories):
+            trajectories_x_array[n, :] = PolicyEvaluation.generate_trajectory_with_policy(T, policy_array)
+
+        return trajectories_x_array
+
+
+    @staticmethod
+    def calc_mean_std_return(trajectories_x_array: np.ndarray, T: int, policy_array: np.ndarray, s: float):
+        # initializations and asserts
+        no_trajectories, T_plus_1 = np.shape(trajectories_x_array)
+        assert T_plus_1 == T + 1, "np.shape(trajectories_x_array) must be (positive int, T + 1)"
+
+        p_distribution = np.where(np.isnan(policy_array), np.nan, 1/2)
+
+        list_return_values = []
+
+        # compute return values for trajectories
+        for n in range(no_trajectories):
+            return_value = 0
+
+            for t in range(1, T + 1):
+                return_value += ReweightedDynamics.calc_reward(trajectories_x_array[n, t],
+                                                               trajectories_x_array[n, t - 1],
+                                                               t, T, s, policy_array, p_distribution)
+
+            list_return_values.append(return_value)
+
+        return np.mean(list_return_values), np.std(list_return_values)
+
+
+    @staticmethod
+    def calc_prob_rare_trajectory(trajectories_x_array: np.ndarray, T: int):
+        # initializations and asserts
+        no_trajectories, T_plus_1 = np.shape(trajectories_x_array)
+        assert T_plus_1 == T + 1, "np.shape(trajectories_x_array) must be (positive int, T + 1)"
+
+        no_RWB = np.sum(trajectories_x_array[:, -1] == 0.)  # no of trajectories with endpoint x_T == 0.
+
+        return no_RWB / no_trajectories
+
+
+class AllPlotsFewQubitsCases:
+    def __init__(self, fourier_coeffs: FourierCoeffs = None,
+                 reinforcement_learning_fits: ReinforcementLearningFits | List[ReinforcementLearningFits] = None):
+        """
+        Utility class for few_qubits_cases.py which reproduces plots of classes FourierCoeffs and/or
+        ReinforcementLearningFits based on the attributes of fourier_coeffs and/or reinforcement_learning_fits
+        and moreover plots mean and variance of residual mean squared errors vs. no. of layers
+        :param fourier_coeffs:
+        :param reinforcement_learning_fits: single instance of class ReinforcementLearningFits or list of instances
+        """
+        self.plot_residual_mean_squared_errors_mean_std_vs_no_layers(reinforcement_learning_fits, set_title=True)
+
+
+    @staticmethod
+    def plot_residual_mean_squared_errors_mean_std_vs_no_layers(list_reinforcement_learning_fits:
+                                                                List[ReinforcementLearningFits], set_title=False):
+        # initialize lists
+        list_no_layers = []
+        list_mean_of_mean_squared_errors = []
+        list_std_of_mean_squared_errors = []
+
+        for n in range(len(list_reinforcement_learning_fits)):
+            reinforcement_learning_fits = list_reinforcement_learning_fits[n]
+
+            list_no_layers.append(reinforcement_learning_fits.no_layers)
+            list_mean_of_mean_squared_errors.append(np.mean(
+                reinforcement_learning_fits.residual_mean_squared_errors_1_qubit_fourier_coeffs))
+            list_std_of_mean_squared_errors.append(np.std(
+                reinforcement_learning_fits.residual_mean_squared_errors_1_qubit_fourier_coeffs))
+            # TODO: implement further lists for further mean squared errors of interest
+
+        fig, ax = plt.subplots()
+        ax.errorbar(list_no_layers, list_mean_of_mean_squared_errors, yerr=list_std_of_mean_squared_errors,
+                    fmt='o')
+
+        if set_title:
+            ax.set_title("statistics for residual mean squared errors of fits")
+
+        # ax.set_ylim(-1, 1)
+        # ax.set_xlim(-1, 1)
+
+        plt.tight_layout(pad=0.5)
+
+        # save plot
+        fig.savefig("statistics_residual_mean_squared_errors_vs_no_layers.pdf",
+                    bbox_inches="tight")
+
+        plt.show()
