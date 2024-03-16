@@ -4,9 +4,47 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from typing import List
 
 
-# ROUTINES ######
+def write_plot_params_to_file(file_name: str, no_qubits: int, no_layers: int, no_fits: int, T: int, s: float,
+                              no_trajectories: int, mean_squared_error_list: List, prob_rare_trajectory: float,
+                              return_values_list: List, plot_name: str = None):
+    min_MSE = np.min(mean_squared_error_list)
+    mean_MSE = np.mean(mean_squared_error_list)
+    std_MSE = np.std(mean_squared_error_list)
+
+    max_return = np.max(return_values_list)
+    mean_return = np.mean(return_values_list)
+    std_return = np.std(return_values_list)
+
+    with open(file_name, 'w') as file:
+        if plot_name is not None:
+            file.write(f"plot name = {plot_name}\n")
+        else:
+            file.write(f"plot name = {file_name}\n")
+
+        file.write(f"#qubits = {no_qubits}\n")
+        file.write(f"#layers = {no_layers}\n")
+        file.write(f"#fits = {no_fits}\n")
+
+        file.write(f"T = {T}\n")
+        file.write(f"s = {s}\n")
+        file.write(f"#trajectories = {no_trajectories}\n")
+
+        file.write(f"#min(MSE) = {min_MSE}\n")
+        file.write(f"#mean(MSE) = {mean_MSE}\n")
+        file.write(f"#std(MSE) = {std_MSE}\n")
+
+        file.write(f"#prob. rare trajectory = {prob_rare_trajectory}\n")
+
+        file.write(f"#max(return) = {max_return}\n")
+        file.write(f"#mean(return) = {mean_return}\n")
+        file.write(f"#std(return) = {std_return}\n")
+
+    return
+
+
 def to_binary_repr_list(num: int, bits: int):
     return [num // (2 ** j) % 2 for j in range(bits)][::-1]
 
@@ -115,7 +153,7 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
 
     # set title, labels, ticks, and limits
     if set_title:
-        ax.set_title(title + "(to go 1 step down)")
+        ax.set_title(title + " (to go 1 step down)")
 
     ax.set_xlabel("$t$")
     ax.set_ylabel("$x$")
@@ -179,11 +217,12 @@ def load_and_restore_obj(cls, file_name):
     obj.__dict__.update(attributes)
     return obj
 
-def restore_or_compute_obj(class_type, generator_function, filename: str) -> any:
-    try:
-        return load_and_restore_obj(class_type, filename)
-    except:
-        pass
+def restore_or_compute_obj(class_type, generator_function, filename: str, recompute=False) -> any:
+    if not recompute:
+        try:
+            return load_and_restore_obj(class_type, filename)
+        except:
+            pass
 
     computed_object = generator_function()
     save_obj(computed_object, filename)
