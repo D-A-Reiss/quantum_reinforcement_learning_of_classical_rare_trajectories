@@ -10,7 +10,8 @@ from scipy.optimize import minimize
 from sympy.physics.quantum import TensorProduct
 
 from reweighted_dynamics import ReweightedDynamics
-from utilities import import_policy_from_csv, einsum_subscripts, ProgressBar, plot_prob_distribution
+from utilities import import_policy_from_csv, einsum_subscripts, ProgressBar, plot_prob_distribution, \
+    write_plot_params_to_file
 
 
 # CONSTANTS #####
@@ -216,6 +217,7 @@ def fit_multivariate_func_leastsq(func: Callable[[np.ndarray, np.ndarray], np.nd
 
     result = minimize(cost_func, params_initial_guess, bounds=params_bounds)
 
+    print("\n")
     print("Fitting was successful:", result.success)
 
     optimized_params = result.x
@@ -536,8 +538,6 @@ class FourierCoeffs:
         coeffs_real = np.real(coeffs)
         coeffs_imag = np.imag(coeffs)
 
-        print(coeffs)
-
         # plot Fourier coefficients
         no_random_samples, no_x, no_t = np.shape(coeffs)
 
@@ -575,8 +575,8 @@ class FourierCoeffs:
 
 
 class ReinforcementLearningFits:
-    def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int, set_title=True,
-                 theta_fits=True):
+    def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int,
+                 no_trajectories: int, set_title=True, theta_fits=True):
         # save inputs
         self.T = T
         self.no_layers = no_layers
@@ -590,17 +590,20 @@ class ReinforcementLearningFits:
                                       for t in t_values])
 
         P_W_array = reweighted_dynamics.P_W_array
+        plot_mask = np.isnan(P_W_array)
+        s = reweighted_dynamics.s
 
         ### plot policy (in the 1-qubit case w/o data RE-uploading)
         ### as SANITY CHECK also in terms of variational parameters \theta_1, \theta_2, and \theta_3)
         # import results of QRL algorithm
+        """
         self.policy_array = import_policy_from_csv(T, path='/Users/davidreiss/Desktop/Archiv/Quantum_PG_2/Plots/8_Final_policy_probabilities.csv')
         plot_mask = np.isnan(self.policy_array)
         self.params_1_qubit_array = np.array([1.003468, 1.0284932]
                                              + [0.8490333, 1.8261642, 1.0306203]#, 0.94512033]
                                              + [2.0050492])#, -2.005049])
         # input scalings, variational params, output scaling
-
+        """
         """
         # calculate amplitudes and phases from variational parameters
         params_array = self.calc_params_array_1_qubit_case(params_1_qubit_array)
@@ -612,18 +615,20 @@ class ReinforcementLearningFits:
 
         ### fits to reweighted dynamics
         ## fits in terms of variational parameters thetas
+        file_name = str(no_layers) + "_layers_" + str(no_fits) + "_fits"
+
         if theta_fits:
             # fits starting from symbolic computation of Fourier coefficients as functions of thetas
             if no_layers == 1:
                 self.vals_fitted_func_1_qubit_1_layer_thetas, self.optimized_params_1_qubit_1_layer_thetas, \
                     self.residual_mean_squared_errors_1_qubit_1_layer_thetas = \
-                    self.fit_and_plot_softmax_policy(self.softmax_policy_1_qubit_1_layer_thetas, self.coords_array,
-                                                     P_W_array, T, no_layers, no_fits, no_thetas=3,
-                                                     set_title=set_title, title="Mathematica_$\pi_\\theta$",
-                                                     plot_mask=plot_mask, plot_diff=True)
+                    self.fit_and_plot_softmax_policy("Mathematica_1_qubit_" + file_name,
+                                                     self.softmax_policy_1_qubit_1_layer_thetas, self.coords_array,
+                                                     P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
+                                                     no_thetas=3, set_title=set_title, plot_mask=plot_mask,
+                                                     plot_diff=True)
 
             # fits starting from SymPy expressions
-
             self.softmax_policy_lambdified = \
                 self.softmax_policy_from_sympy_expr(FourierCoeffs.calc_expectation_value_1_qubit_n_layers(self.no_layers,
                                                                                                           sp_sigma_z),
@@ -631,9 +636,10 @@ class ReinforcementLearningFits:
 
             self.vals_fitted_func_from_sympy, self.optimized_params_from_sympy, \
                 self.residual_mean_squared_errors_from_sympy = \
-                self.fit_and_plot_softmax_policy(self.softmax_policy_from_lambdified_expr, self.coords_array, P_W_array,
-                                                 T, no_layers, no_fits, no_thetas=(4 * self.no_layers - 1),
-                                                 set_title=set_title, title="SymPy_$\pi_\\theta$",
+                self.fit_and_plot_softmax_policy("SymPy_1_qubit_" + file_name,
+                                                 self.softmax_policy_from_lambdified_expr, self.coords_array, P_W_array,
+                                                 T, s, 1, no_layers, no_fits, no_trajectories,
+                                                 no_thetas=(4 * self.no_layers - 1), set_title=set_title,
                                                  plot_mask=plot_mask, plot_diff=True)
 
         ## fits in terms of Fourier coefficients (amplitudes and phases)
@@ -641,27 +647,31 @@ class ReinforcementLearningFits:
         no_freqs = 2 * no_layers + 1
 
         if no_layers == 1:
-            self.vals_fitted_func_1_qubit_1_layer_fourier_coeffs, self.optimized_params_1_qubit_1_layer_fourier_coeffs, \
+            self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_1_layer_fourier_coeffs, \
                 self.residual_mean_squared_errors_1_qubit_1_layer_fourier_coeffs = \
-                self.fit_and_plot_softmax_policy(self.softmax_policy_1_qubit_1_layer_fourier_coeffs, self.coords_array,
-                                                 P_W_array, T, no_layers, no_fits, no_amplitudes=3, no_phases=3,
-                                                 set_title=set_title, title="Fourier_coeffs_restricted_$\pi$",
+                self.fit_and_plot_softmax_policy("Fourier_coeffs_restricted_1_qubit_" + file_name,
+                                                 self.softmax_policy_1_qubit_1_layer_fourier_coeffs, self.coords_array,
+                                                 P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
+                                                 no_amplitudes=3, no_phases=3, set_title=set_title,
                                                  plot_mask=plot_mask, plot_diff=True)
 
-            self.vals_fitted_func_2_qubits_1_layer_fourier_coeffs, \
+            self.vals_fitted_func_2_qubits_fourier_coeffs, \
                 self.optimized_params_2_qubits_1_layer_fourier_coeffs, \
                 self.residual_mean_squared_errors_2_qubits_1_layer_fourier_coeffs = \
-                self.fit_and_plot_softmax_policy(self.softmax_policy_2_qubits_1_layer_fourier_coeffs, self.coords_array,
-                                                 P_W_array, T, no_layers, no_fits, no_amplitudes=1, no_phases=0,
-                                                 set_title=set_title, title="Fourier_coeffs_2_qubits_restricted_$\pi$",
+                self.fit_and_plot_softmax_policy("Fourier_coeffs_restricted_2_qubits_" + file_name,
+                                                 self.softmax_policy_2_qubits_1_layer_fourier_coeffs, self.coords_array,
+                                                 P_W_array, T, s, 2, no_layers, no_fits, no_trajectories,
+                                                 no_amplitudes=1, no_phases=0, set_title=set_title,
                                                  plot_mask=plot_mask, plot_diff=True)
 
-        self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_fourier_coeffs, \
-            self.residual_mean_squared_errors_1_qubit_fourier_coeffs = \
-            self.fit_and_plot_softmax_policy(self.softmax_policy, self.coords_array, P_W_array, T, no_layers, no_fits,
-                                             no_amplitudes=no_pos_freqs * no_freqs, no_phases=no_pos_freqs * no_freqs,
-                                             set_title=set_title, title="Fourier_coeffs_general_$\pi$",
-                                             plot_mask=plot_mask, plot_diff=True)
+        else:
+            self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_fourier_coeffs, \
+                self.residual_mean_squared_errors_1_qubit_fourier_coeffs = \
+                self.fit_and_plot_softmax_policy("1_and_2_qubits_" + file_name, self.softmax_policy, self.coords_array,
+                                                 P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
+                                                 no_amplitudes=no_pos_freqs * no_freqs,
+                                                 no_phases=no_pos_freqs * no_freqs,
+                                                 set_title=set_title, plot_mask=plot_mask, plot_diff=True)
 
 
     @staticmethod
@@ -908,10 +918,11 @@ class ReinforcementLearningFits:
 
 
     @staticmethod
-    def fit_and_plot_softmax_policy(softmax_policy: Callable, coords_array: np.ndarray, data_array: np.ndarray,
-                                    T: int, no_layers: int, no_fits: int, no_thetas: int = None, no_amplitudes: int = None,
-                                    no_phases: int = None, set_title=False, title="", plot_mask: np.ndarray = None,
-                                    plot_diff=True):
+    def fit_and_plot_softmax_policy(file_name: str, softmax_policy: Callable, coords_array: np.ndarray,
+                                    data_array: np.ndarray, T: int, s: float, no_qubits: int, no_layers: int,
+                                    no_fits: int, no_trajectories: int, no_thetas: int = None,
+                                    no_amplitudes: int = None, no_phases: int = None, set_title=False,
+                                    plot_mask: np.ndarray = None, plot_diff=True):
         """
 
         :param softmax_policy:
@@ -930,11 +941,11 @@ class ReinforcementLearningFits:
         """
         assert no_fits > 0, "no_fits must be an integer greater than 0, otherwise the function does not make sense"
 
-        residual_mean_squared_error_list = []
+        mean_squared_error_list = []
         optimized_params_list = []
 
         # initialize instance progress_bar of utility class ProgressBar
-        progress_bar = ProgressBar(no_fits, "Fits of " + title +
+        progress_bar = ProgressBar(no_fits, "Fits for " + file_name +
                                    " starting from different random choices of parameters")
 
         for i in range(no_fits):
@@ -959,40 +970,47 @@ class ReinforcementLearningFits:
                                  + [(0., 2 * np.pi)] * no_phases
                                  + [(-np.inf, np.inf)])
 
-            optimized_params, residual_mean_squared_error = \
+            optimized_params, mean_squared_error = \
                 fit_multivariate_func_leastsq(softmax_policy, coords_array, data_array,
                                               params_initial_guess=initial_params,
                                               params_bounds=bounds_params,
                                               no_independent_vars=2)
 
-            residual_mean_squared_error_list.append(residual_mean_squared_error)
+            mean_squared_error_list.append(mean_squared_error)
             optimized_params_list.append(optimized_params)
 
         # finish progress bar
         progress_bar.finish()
 
-        index = np.argmin(residual_mean_squared_error_list)
-        residual_mean_squared_error_min = residual_mean_squared_error_list[index]
+        # plot best fit
+        index = np.argmin(mean_squared_error_list)
+        mean_squared_error_min = mean_squared_error_list[index]
         optimized_params_min = optimized_params_list[index]
+
+        if no_fits > 1:
+            mean_squared_error_2nd_smallest = np.partition(mean_squared_error_list, 1)[1]
 
         vals_fitted_func_array = softmax_policy(coords_array, optimized_params_min)
 
         if plot_diff:
-            plot_prob_distribution(T, np.abs(vals_fitted_func_array - data_array),
-                                   set_title=set_title, title="1_qubit_" + str(no_layers) + "_layers_" + str(no_fits) + "_fits_" + title,
-                                   plot_mask=plot_mask, diff=plot_diff)
-        else:
-            plot_prob_distribution(T, vals_fitted_func_array,
-                                   set_title=set_title, title=title,
-                                   plot_mask=plot_mask, diff=plot_diff)
+            plot_prob_distribution(T, (data_array - vals_fitted_func_array),
+                                   set_title=set_title,
+                                   title=file_name + "_diff",
+                                   plot_mask=plot_mask, diff=True)
 
-        print("smallest residual_mean_squared_error: ", residual_mean_squared_error_min)
+        plot_prob_distribution(T, vals_fitted_func_array,
+                               set_title=set_title,
+                               title=file_name,
+                               plot_mask=plot_mask, diff=False)
 
-        if no_fits > 1:
-            print("second smallest residual_mean_squared_error: ",
-                  np.partition(residual_mean_squared_error_list, 1)[1])
+        # save plot parameters in txt-file
+        policy_evaluation = PolicyEvaluation(T, vals_fitted_func_array, no_trajectories, s)
 
-        return vals_fitted_func_array, optimized_params_min, residual_mean_squared_error_list
+        write_plot_params_to_file(file_name, no_qubits, no_layers, no_fits, T, s, no_trajectories,
+                                  mean_squared_error_list, policy_evaluation.prob_rare_trajectory,
+                                  policy_evaluation.return_values_list, plot_name=file_name + "_P_to_go_1_step_down")
+
+        return vals_fitted_func_array, optimized_params_min, mean_squared_error_list
 
 
 class PolicyEvaluation:
@@ -1002,12 +1020,10 @@ class PolicyEvaluation:
         # - probability to generate a rare trajectory (random-walk bridge) for no_trajectories trajectories
         self.trajectories_x_array = self.calc_trajectories_x_array(no_trajectories, T, policy_array)
 
-        self.mean_return_values, self.std_return_values = self.calc_mean_std_return(self.trajectories_x_array, T,
-                                                                                    policy_array, s)
-        print(self.mean_return_values, self.std_return_values)
+        self.return_values_list = self.calc_return_values(self.trajectories_x_array, T,
+                                                          policy_array, s)
 
         self.prob_rare_trajectory = self.calc_prob_rare_trajectory(self.trajectories_x_array, T)
-        print(self.prob_rare_trajectory)
 
 
     @staticmethod
@@ -1037,14 +1053,14 @@ class PolicyEvaluation:
 
 
     @staticmethod
-    def calc_mean_std_return(trajectories_x_array: np.ndarray, T: int, policy_array: np.ndarray, s: float):
+    def calc_return_values(trajectories_x_array: np.ndarray, T: int, policy_array: np.ndarray, s: float):
         # initializations and asserts
         no_trajectories, T_plus_1 = np.shape(trajectories_x_array)
         assert T_plus_1 == T + 1, "np.shape(trajectories_x_array) must be (positive int, T + 1)"
 
         p_distribution = np.where(np.isnan(policy_array), np.nan, 1/2)
 
-        list_return_values = []
+        return_values_list = []
 
         # compute return values for trajectories
         for n in range(no_trajectories):
@@ -1055,9 +1071,9 @@ class PolicyEvaluation:
                                                                trajectories_x_array[n, t - 1],
                                                                t, T, s, policy_array, p_distribution)
 
-            list_return_values.append(return_value)
+            return_values_list.append(return_value)
 
-        return np.mean(list_return_values), np.std(list_return_values)
+        return return_values_list
 
 
     @staticmethod
