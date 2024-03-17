@@ -18,29 +18,29 @@ def write_plot_params_to_file(file_name: str, no_qubits: int, no_layers: int, no
     mean_return = np.mean(return_values_list)
     std_return = np.std(return_values_list)
 
-    with open(file_name, 'w') as file:
+    with open(file_name + ".txt", 'w') as file:
         if plot_name is not None:
-            file.write(f"plot name = {plot_name}\n")
+            file.write(f"plot name = {plot_name}.pdf \n")
         else:
-            file.write(f"plot name = {file_name}\n")
+            file.write(f"plot name = {file_name}.pdf \n")
 
         file.write(f"#qubits = {no_qubits}\n")
         file.write(f"#layers = {no_layers}\n")
         file.write(f"#fits = {no_fits}\n")
+        file.write(f"#trajectories = {no_trajectories}\n")
 
         file.write(f"T = {T}\n")
         file.write(f"s = {s}\n")
-        file.write(f"#trajectories = {no_trajectories}\n")
 
-        file.write(f"#min(MSE) = {min_MSE}\n")
-        file.write(f"#mean(MSE) = {mean_MSE}\n")
-        file.write(f"#std(MSE) = {std_MSE}\n")
+        file.write(f"min(MSE) = {min_MSE}\n")
+        file.write(f"mean(MSE) = {mean_MSE}\n")
+        file.write(f"std(MSE) = {std_MSE}\n")
 
-        file.write(f"#prob. rare trajectory = {prob_rare_trajectory}\n")
+        file.write(f"prob. rare trajectory = {prob_rare_trajectory}\n")
 
-        file.write(f"#max(return) = {max_return}\n")
-        file.write(f"#mean(return) = {mean_return}\n")
-        file.write(f"#std(return) = {std_return}\n")
+        file.write(f"max(return) = {max_return}\n")
+        file.write(f"mean(return) = {mean_return}\n")
+        file.write(f"std(return) = {std_return}\n")
 
     return
 
@@ -147,13 +147,16 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
 
-    im = ax.imshow(prob_array, cmap='viridis')
+    if not diff:
+        im = ax.imshow(prob_array, cmap='viridis', vmin=0., vmax=1.)
+    else:
+        im = ax.imshow(prob_array, cmap='viridis')
 
     fig.colorbar(im, cax=cax, orientation='vertical')
 
     # set title, labels, ticks, and limits
     if set_title:
-        ax.set_title(title + " (to go 1 step down)")
+        ax.set_title(title + "$P$ (to go 1 step down)")
 
     ax.set_xlabel("$t$")
     ax.set_ylabel("$x$")
@@ -166,7 +169,7 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
                   labels=[str(-2 * T//4), str(-1 * T//4), str(0), str(1 * T//4), str(2 * T//4)])
 
     # save plot
-    fig.savefig(title + "_to_go_1_step_down.pdf", bbox_inches="tight")
+    fig.savefig(title + "_P_to_go_1_step_down.pdf", bbox_inches="tight")
 
     plt.show()
 
