@@ -51,7 +51,7 @@ def tensor_prod(a, b, sympy_expr=False):
         return np.kron(a, b)
 
 
-def r_n(alpha: float | sp.Symbol, n: str, sympy_expr=False) -> np.ndarray:
+def r_n(alpha: float | sp.Symbol, n: str, sympy_expr=False, deactivated=False) -> np.ndarray:
     """
     Compute rotations on Bloch sphere, if sympy_expr == True the symbolic (SymPy) expressions, else the numerical ones.
 
@@ -64,6 +64,9 @@ def r_n(alpha: float | sp.Symbol, n: str, sympy_expr=False) -> np.ndarray:
         np.ndarray
     """
     identity = np.identity(2) if not sympy_expr else sp_identity
+
+    if deactivated:
+        return identity
 
     if n == "x":
         sigma = sigma_x if not sympy_expr else sp_sigma_x
@@ -80,12 +83,12 @@ def r_n(alpha: float | sp.Symbol, n: str, sympy_expr=False) -> np.ndarray:
         return np.cos(alpha / 2) * identity - 1j * np.sin(alpha / 2) * sigma
 
 
-def r_n_multi_qubit(tot_no_qubits: int, acting_on_qubit_no: int, alpha: float | sp.Symbol, n: str, sympy_expr=False) \
-        -> np.ndarray:
+def r_n_multi_qubit(tot_no_qubits: int, acting_on_qubit_no: int, alpha: float | sp.Symbol, n: str, sympy_expr=False,
+                    deactivated=False) -> np.ndarray:
     assert tot_no_qubits > 1, "tot_no_qubits must be greater than 1"
 
     identity = np.identity(2) if not sympy_expr else sp_identity
-    single_qubit_r_n = r_n(alpha, n, sympy_expr=sympy_expr)
+    single_qubit_r_n = r_n(alpha, n, sympy_expr=sympy_expr, deactivated=deactivated)
 
     def choose_nth_matrix(n):
         return single_qubit_r_n if acting_on_qubit_no == n else identity
@@ -98,19 +101,21 @@ def r_n_multi_qubit(tot_no_qubits: int, acting_on_qubit_no: int, alpha: float | 
     return matrix
 
 
-def ctrl_z(sympy_expr=False):
+def ctrl_z(sympy_expr=False, deactivated=False):
     """
     Compute controlled-Z gate for 2 qubits.
     :return:
     """
     if sympy_expr:
         cz = sp.eye(4)
-        cz[3, 3] = -1
-        return cz
     else:
         cz = np.identity(4)
-        cz[3, 3] = -1.
+
+    if deactivated:
         return cz
+
+    cz[3, 3] = -1.
+    return cz
 
 
 def calc_multivariate_fourier_series(f: sp.Expr, x: sp.Symbol, y: sp.Symbol, m_max: int, n_max: int) \
@@ -232,7 +237,9 @@ def calc_mean_squared_difference(data_array_1: np.ndarray, data_array_2: np.ndar
 
 # CLASSES
 class FourierCoeffs:
-    def __init__(self, no_qubits: int, no_layers: int, no_random_samples: int):
+    def __init__(self, no_qubits: int, no_layers: int, no_samples: int, random_thetas=True,
+                 optimized_fourier_coeffs: np.ndarray = None, deactivate_r_x=False, deactive_r_y_and_r_z=False,
+                 deactive_ctrl_z=False):
         """
         # choose all theta angles randomly
         #theta_vector = 2 * np.pi * np.random.random(size=4 * no_layers)
@@ -273,7 +280,9 @@ class FourierCoeffs:
         print(sp.simplify(expectation_val_z_0_z_1))
         """
 
-        FourierCoeffs.visualize_fourier_coeffs_m_qubits_n_layers(no_qubits, no_layers, obs, no_random_samples)
+        FourierCoeffs.visualize_fourier_coeffs_m_qubits_n_layers(no_qubits, no_layers, obs, no_samples,
+                                                                 random_thetas=random_thetas,
+                                                                 optimized_fourier_coeffs=optimized_fourier_coeffs)
 
 
     @staticmethod
@@ -501,7 +510,8 @@ class FourierCoeffs:
 
 
     @staticmethod
-    def visualize_fourier_coeffs_m_qubits_n_layers(no_qubits: int, no_layers: int, obs: np.ndarray, no_random_samples=100):
+    def visualize_fourier_coeffs_m_qubits_n_layers(no_qubits: int, no_layers: int, obs: np.ndarray, no_samples=100,
+                                                   random_thetas=True, optimized_fourier_coeffs: np.ndarray = None):
         """
         This function consists of code adjusted from the PennyLane demo by Schuld and Meyer
         (https://pennylane.ai/qml/demos/tutorial_expressivity_fourier_series/#part-iii-sampling-fourier-coefficients).
@@ -513,24 +523,57 @@ class FourierCoeffs:
         coeffs = []
 
         # compute Fourier coefficients
-        progress_bar = ProgressBar(no_random_samples, "Fourier coefficients of 1-qubit-PQC with " + str(no_layers) +
-                                   " layers for different random choices of thetas")
+        progress_bar = ProgressBar(no_samples, "Fourier coefficients of 1-qubit-PQC with " + str(no_layers) +
+                                   " layers for different choices of thetas")
 
-        for i in range(no_random_samples):
-            progress_bar.update(i)
+        if random_thetas:
+            for i in range(no_samples):
+                progress_bar.update(i)
 
+                if no_qubits == 1:
+                    thetas = 2 * np.pi * np.random.random(4 * no_layers - 1)
+                    expectation_val_z = FourierCoeffs.calc_expectation_value_1_qubit_n_layers(no_layers, obs,
+                                                                                              theta_vals=thetas)
+
+                elif no_qubits == 2:
+                    thetas = 2 * np.pi * np.random.random(4 * no_layers)
+                    expectation_val_z = FourierCoeffs.calc_expectation_value_2_qubits_n_layers(no_layers, obs,
+                                                                                               theta_vals=thetas)
+
+                coeffs_sample = FourierCoeffs.calc_fourier_coeffs_2D_FFT(expectation_val_z, x, t, no_layers)
+                coeffs.append(coeffs_sample)
+
+        else:
             if no_qubits == 1:
-                thetas = 2 * np.pi * np.random.random(4 * no_layers - 1)
-                expectation_val_z = FourierCoeffs.calc_expectation_value_1_qubit_n_layers(no_layers, obs,
-                                                                                          theta_vals=thetas)
+                no_thetas = 4 * no_layers - 1
 
             elif no_qubits == 2:
-                thetas = 2 * np.pi * np.random.random(4 * no_layers)
-                expectation_val_z = FourierCoeffs.calc_expectation_value_2_qubits_n_layers(no_layers, obs,
-                                                                                           theta_vals=thetas)
+                no_thetas = 4 * no_layers
 
-            coeffs_sample = FourierCoeffs.calc_fourier_coeffs_2D_FFT(expectation_val_z, x, t, no_layers)
-            coeffs.append(coeffs_sample)
+            theta_vals_array = np.linspace(0., 2 * np.pi, num=int(no_samples**(1 / no_thetas)), endpoint=False)
+
+            theta_vals_array_list = [theta_vals_array] * no_thetas
+            theta_meshgrids_list = np.meshgrid(*theta_vals_array_list, indexing="ij")
+
+            theta_vecs_array = np.vstack([meshgrid.ravel() for meshgrid in theta_meshgrids_list]).T
+
+            i = 0
+
+            for theta_vec in theta_vecs_array:
+                progress_bar.update(i)
+
+                if no_qubits == 1:
+                    expectation_val_z = FourierCoeffs.calc_expectation_value_1_qubit_n_layers(no_layers, obs,
+                                                                                              theta_vals=theta_vec)
+
+                elif no_qubits == 2:
+                    expectation_val_z = FourierCoeffs.calc_expectation_value_2_qubits_n_layers(no_layers, obs,
+                                                                                               theta_vals=theta_vec)
+
+                coeffs_sample = FourierCoeffs.calc_fourier_coeffs_2D_FFT(expectation_val_z, x, t, no_layers)
+                coeffs.append(coeffs_sample)
+
+                i += 1
 
         progress_bar.finish()
 
@@ -538,9 +581,26 @@ class FourierCoeffs:
         coeffs_real = np.real(coeffs)
         coeffs_imag = np.imag(coeffs)
 
-        # plot Fourier coefficients
-        no_random_samples, no_x, no_t = np.shape(coeffs)
+        no_samples, no_x, no_t = np.shape(coeffs)
 
+        if optimized_fourier_coeffs is not None:
+            no_opt_coeffs = len(optimized_fourier_coeffs)
+            opt_coeffs_real = 1 / 2 * optimized_fourier_coeffs[:no_opt_coeffs // 2] \
+                              * np.cos(optimized_fourier_coeffs[no_opt_coeffs // 2:])
+            opt_coeffs_imag = 1 / 2 * optimized_fourier_coeffs[:no_opt_coeffs // 2] \
+                              * np.sin(optimized_fourier_coeffs[no_opt_coeffs // 2:])
+
+            opt_coeffs_real = np.swapaxes(opt_coeffs_real.reshape(no_t, no_x), 0, 1)
+            opt_coeffs_imag = np.swapaxes(opt_coeffs_imag.reshape(no_t, no_x), 0, 1)
+
+            # multiply c_{00} by 2
+            opt_coeffs_real[(no_x - 1) // 2, 0] *= 2
+            opt_coeffs_imag[(no_x - 1) // 2, 0] *= 2
+
+            opt_coeffs_real = np.expand_dims(opt_coeffs_real, 0)
+            opt_coeffs_imag = np.expand_dims(opt_coeffs_imag, 0)
+
+        # plot Fourier coefficients
         if no_layers == 1:
             fig, ax = plt.subplots(no_x, no_t, figsize=(2 * no_t, 2 * no_x), squeeze=False)
 
@@ -549,6 +609,8 @@ class FourierCoeffs:
                     ax[m, n].set_title("$c_{" + str(m - no_layers) + str(n) + "}$")
                     ax[m, n].scatter(coeffs_real[:, m, n], coeffs_imag[:, m, n], s=20,
                                      facecolor='white', edgecolor='red')
+                    ax[m, n].scatter(opt_coeffs_real[:, m, n], opt_coeffs_imag[:, m, n], s=20,
+                                     facecolor='white', edgecolor='black')
                     ax[m, n].set_aspect("equal")
                     ax[m, n].set_ylim(-1, 1)
                     ax[m, n].set_xlim(-1, 1)
@@ -561,9 +623,13 @@ class FourierCoeffs:
                     ax[n, m].set_title("$c_{" + str(m - no_layers) + str(n) + "}$")
                     ax[n, m].scatter(coeffs_real[:, m, n], coeffs_imag[:, m, n], s=20,
                                      facecolor='white', edgecolor='green')
+                    ax[n, m].scatter(opt_coeffs_real[:, m, n], opt_coeffs_imag[:, m, n], s=20,
+                                     facecolor='white', edgecolor='black')
                     ax[n, m].set_aspect("equal")
                     ax[n, m].set_ylim(-1, 1)
                     ax[n, m].set_xlim(-1, 1)
+                    #ax[n, m].set_ylim(-2, 2)
+                    #ax[n, m].set_xlim(-2, 2)
 
         plt.tight_layout(pad=0.5)
 
@@ -576,7 +642,8 @@ class FourierCoeffs:
 
 class ReinforcementLearningFits:
     def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int,
-                 no_trajectories: int, set_title=True, theta_fits=True):
+                 no_trajectories: int, set_title=True, theta_fits=True, optimized_params_fourier_coeffs: np.ndarray=None,
+                 optimized_no_layers: int = None):
         # save inputs
         self.T = T
         self.no_layers = no_layers
@@ -671,7 +738,9 @@ class ReinforcementLearningFits:
                                                  P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
                                                  no_amplitudes=no_pos_freqs * no_freqs,
                                                  no_phases=no_pos_freqs * no_freqs,
-                                                 set_title=set_title, plot_mask=plot_mask, plot_diff=True)
+                                                 set_title=set_title, plot_mask=plot_mask, plot_diff=True,
+                                                 optimized_params_fourier_coeffs=optimized_params_fourier_coeffs,
+                                                 optimized_no_layers=optimized_no_layers)
 
 
     @staticmethod
@@ -780,6 +849,50 @@ class ReinforcementLearningFits:
         return params_array
 
 
+    @staticmethod
+    def get_subarrays_from_params_array(params_array: np.ndarray, no_layers: int):
+        lambda_array = params_array[:2]
+        coeffs_array = params_array[2:-1]
+        w = params_array[-1:]
+
+        no_pos_freqs = no_layers + 1
+        no_freqs = 2 * no_layers + 1
+
+        amplitudes_array = coeffs_array[:no_pos_freqs * no_freqs].reshape(no_pos_freqs, no_freqs)
+        phases_array = coeffs_array[no_pos_freqs * no_freqs:].reshape(no_pos_freqs, no_freqs)
+
+        return lambda_array, w, amplitudes_array, phases_array
+
+
+    @staticmethod
+    def get_params_array_from_subarrays(lambda_array: np.ndarray, w: np.ndarray, amplitudes_array: np.ndarray,
+                                        phases_array: np.ndarray):
+        return np.concatenate((lambda_array, amplitudes_array.flatten(), phases_array.flatten(), w))
+
+
+    @staticmethod
+    def insert_optimized_params_into_larger_params_array(optimized_params_array: np.ndarray, params_array: np.ndarray,
+                                                         optimized_no_layers: int, no_layers: int):
+        opt_params_array = optimized_params_array
+        opt_no_layers = optimized_no_layers
+
+        opt_lambda_array, opt_w, opt_amplitudes_array, opt_phases_array = \
+            ReinforcementLearningFits.get_subarrays_from_params_array(opt_params_array, opt_no_layers)
+        lambda_array, w, amplitudes_array, phases_array = \
+            ReinforcementLearningFits.get_subarrays_from_params_array(params_array, no_layers)
+
+        lambda_array = opt_lambda_array
+        w = opt_w
+
+        amplitudes_array[:(opt_no_layers + 1), (no_layers - opt_no_layers):(no_layers + opt_no_layers + 1)] = \
+            opt_amplitudes_array
+
+        phases_array[:(opt_no_layers + 1), (no_layers - opt_no_layers):(no_layers + opt_no_layers + 1)] = \
+            opt_phases_array
+
+        return ReinforcementLearningFits.get_params_array_from_subarrays(lambda_array, w, amplitudes_array, phases_array)
+
+
     def softmax_policy(self, coords_array: np.ndarray, params_array: np.ndarray):
         """
 
@@ -787,21 +900,20 @@ class ReinforcementLearningFits:
         :param params_array:
         :return:
         """
-        # split params_array in "subarrays"
-        lambda_array = params_array[:2]
-        coeffs_array = params_array[2:-1]
-        w = params_array[-1:]
-
         no_pos_freqs = self.no_layers + 1
         no_freqs = 2 * self.no_layers + 1
 
         # asserts
         assert len(params_array) == 2 + 2 * no_pos_freqs * no_freqs + 1, \
-            "length of params_array not correct; it must contain 2 input scaling parameters, " \
+            f"length {len(params_array)} of params_array not correct; it must contain 2 input scaling parameters, " \
             "(self.no_layers + 1) * (2 * self.no_layers + 1) amplitudes, " \
             "(self.no_layers + 1) * (2 * self.no_layers + 1) phases, " \
-            "and 1 output scaling parameter"
+            f"and 1 output scaling parameter, here in total: {2 + 2 * no_pos_freqs * no_freqs + 1}"
         # TODO: implement further asserts
+
+        # initializations
+        lambda_array, w, amplitudes_array, phases_array = self.get_subarrays_from_params_array(params_array,
+                                                                                               self.no_layers)
 
         # computations
         g_t = np.arctan(lambda_array[0] * coords_array[..., 0])
@@ -815,22 +927,20 @@ class ReinforcementLearningFits:
         # NOTE: due to the symmetry cos(-x) = cos(x), one does NOT have to consider negative frequencies for
         # either g_t or g_x; here g_t is chosen
 
-        amplitudes = np.broadcast_to(coeffs_array[:no_pos_freqs * no_freqs].reshape(no_pos_freqs, no_freqs),
-                                     (*np.shape(coords_array)[:-1], no_pos_freqs, no_freqs))
-        phases = np.broadcast_to(coeffs_array[no_pos_freqs * no_freqs:].reshape(no_pos_freqs, no_freqs),
-                                 (*np.shape(coords_array)[:-1], no_pos_freqs, no_freqs))
+        amplitudes_array = np.broadcast_to(amplitudes_array, (*np.shape(coords_array)[:-1], no_pos_freqs, no_freqs))
+        phases_array = np.broadcast_to(phases_array, (*np.shape(coords_array)[:-1], no_pos_freqs, no_freqs))
 
-        avg_Z = amplitudes * np.cos(np.einsum(einsum_subscripts("ft,fx",
-                                                                "gt,gx",
-                                                                to="gt,gx,ft,fx"),
-                                              freqs_t,
-                                              g_t)
-                                    + np.einsum(einsum_subscripts("ft,fx",
-                                                                  "gt,gx",
-                                                                  to="gt,gx,ft,fx"),
-                                                freqs_x,
-                                                g_x)
-                                    + phases)
+        avg_Z = amplitudes_array * np.cos(np.einsum(einsum_subscripts("ft,fx",
+                                                                      "gt,gx",
+                                                                      to="gt,gx,ft,fx"),
+                                                    freqs_t,
+                                                    g_t)
+                                          + np.einsum(einsum_subscripts("ft,fx",
+                                                                        "gt,gx",
+                                                                        to="gt,gx,ft,fx"),
+                                                      freqs_x,
+                                                      g_x)
+                                          + phases_array)
 
         return 1 / (np.exp(w * np.einsum(einsum_subscripts("gt,gx,ft,fx",
                                                            to="gt,gx"),
@@ -922,7 +1032,8 @@ class ReinforcementLearningFits:
                                     data_array: np.ndarray, T: int, s: float, no_qubits: int, no_layers: int,
                                     no_fits: int, no_trajectories: int, no_thetas: int = None,
                                     no_amplitudes: int = None, no_phases: int = None, set_title=False,
-                                    plot_mask: np.ndarray = None, plot_diff=True):
+                                    plot_mask: np.ndarray = None, plot_diff=True,
+                                    optimized_params_fourier_coeffs: np.ndarray = None, optimized_no_layers: int = None):
         """
 
         :param softmax_policy:
@@ -956,15 +1067,26 @@ class ReinforcementLearningFits:
                 initial_scalings = np.random.standard_normal(3)
                 initial_thetas = 2 * np.pi * np.random.random(no_thetas)
                 initial_params = np.insert(initial_scalings, 2, initial_thetas)
+                # inserts initial_thetas into initial_scalings starting at position 2
 
                 bounds_params = ([(-np.inf, np.inf)] * 2
                                  + [(0., 2 * np.pi)] * no_thetas
                                  + [(-np.inf, np.inf)])
 
             if no_amplitudes is not None and no_phases is not None:
-                initial_scalings = np.random.standard_normal(3 + no_amplitudes)
-                initial_phases = 2 * np.pi * np.random.random(no_phases)
-                initial_params = np.insert(initial_scalings, 2 + no_amplitudes, initial_phases)
+                if optimized_params_fourier_coeffs is None or optimized_no_layers is None:
+                    initial_scalings = np.random.standard_normal(3 + no_amplitudes)
+                    initial_phases = 2 * np.pi * np.random.random(no_phases)
+                    initial_params = np.insert(initial_scalings, 2 + no_amplitudes, initial_phases)
+                    # inserts initial_phases into initial_scalings starting at position 2 + no_amplitudes
+
+                else:
+                    initial_params = np.zeros(2 + no_amplitudes + no_phases + 1)
+                    initial_params = \
+                        ReinforcementLearningFits.insert_optimized_params_into_larger_params_array(optimized_params_fourier_coeffs,
+                                                                                                   initial_params,
+                                                                                                   optimized_no_layers,
+                                                                                                   no_layers)
 
                 bounds_params = ([(-np.inf, np.inf)] * (2 + no_amplitudes)
                                  + [(0., 2 * np.pi)] * no_phases
@@ -1014,7 +1136,8 @@ class ReinforcementLearningFits:
 
 
 class PolicyEvaluation:
-    def __init__(self, T: int, policy_array: np.ndarray, no_trajectories: int, s: float):
+    def __init__(self, T: int, policy_array: np.ndarray, no_trajectories: int, s: float,
+                 reweighted_dynamics: ReweightedDynamics = None):
         # IDEA: implement this class to evaluate the policy policy_array by computing:
         # - average return of no_trajectories trajectories
         # - probability to generate a rare trajectory (random-walk bridge) for no_trajectories trajectories
@@ -1022,6 +1145,12 @@ class PolicyEvaluation:
 
         self.return_values_list = self.calc_return_values(self.trajectories_x_array, T,
                                                           policy_array, s)
+
+        self.average_return_estimate = np.mean(self.return_values_list)
+
+        if reweighted_dynamics is not None:
+            self.Kullback_Leibler_divergence_estimate = - self.average_return_estimate \
+                                                        + reweighted_dynamics.partition_function_Z
 
         self.prob_rare_trajectory = self.calc_prob_rare_trajectory(self.trajectories_x_array, T)
 
@@ -1133,5 +1262,133 @@ class AllPlotsFewQubitsCases:
         # save plot
         fig.savefig("statistics_residual_mean_squared_errors_vs_no_layers.pdf",
                     bbox_inches="tight")
+
+        plt.show()
+
+
+class PlotTableResultsFewQubitsCases:
+    def __init__(self, no_layers_list: list,
+                 min_MSE_1_qubit_list: list, min_MSE_2_qubits: float,
+                 mean_MSE_1_qubit_list: list, mean_MSE_2_qubits: float,
+                 std_MSE_1_qubit_list: list, std_MSE_2_qubits: float,
+                 prob_rare_trajectory_1_qubit_list: list, prob_rare_trajectory_2_qubits: float):
+        # 3 different colors needed; ticks and labels of left and right axis different
+        self.errorbar_plot(no_layers_list, min_MSE_1_qubit_list, min_MSE_2_qubits, mean_MSE_1_qubit_list,
+                           mean_MSE_2_qubits, std_MSE_1_qubit_list, std_MSE_2_qubits, prob_rare_trajectory_1_qubit_list,
+                           prob_rare_trajectory_2_qubits)
+
+
+    @staticmethod
+    def errorbar_plot(no_layers_list: list,
+                      min_MSE_1_qubit_list: list, min_MSE_2_qubits: float,
+                      mean_MSE_1_qubit_list: list, mean_MSE_2_qubits: float,
+                      std_MSE_1_qubit_list: list, std_MSE_2_qubits: float,
+                      prob_rare_trajectory_1_qubit_list: list, prob_rare_trajectory_2_qubits: float):
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, width_ratios=[3, 1, 1])#, sharey=True)
+        plt.subplots_adjust(wspace=0.15)  # adjusts width between subplots
+
+        # plot first dataset with error bars
+        color = 'tab:red'
+        ax1.errorbar(no_layers_list, min_MSE_1_qubit_list, fmt='D', color=color, label='min(MSE)')
+        ax1.errorbar(no_layers_list, mean_MSE_1_qubit_list, yerr=std_MSE_1_qubit_list, fmt='o', color=color,
+                     label='$\mu(MSE) \pm \sigma(MSE)$')
+
+        ax2.errorbar(no_layers_list, min_MSE_1_qubit_list, fmt='D', color=color, label='min(MSE)')
+        ax2.errorbar(no_layers_list, mean_MSE_1_qubit_list, yerr=std_MSE_1_qubit_list, fmt='o', color=color,
+                     label='$\mu(MSE) \pm \sigma(MSE)$')
+
+        ax3.errorbar(no_layers_list, min_MSE_1_qubit_list, fmt='D', color=color, label='min(MSE)')
+        ax3.errorbar(no_layers_list, mean_MSE_1_qubit_list, yerr=std_MSE_1_qubit_list, fmt='o', color=color,
+                     label='$\mu(MSE) \pm \sigma(MSE)$')
+
+        ax1.errorbar(1, min_MSE_2_qubits, fmt='D', mec=color, mfc='none')  # , label='min(MSE)')
+        ax1.errorbar(1, mean_MSE_2_qubits, yerr=std_MSE_2_qubits, fmt='o', mec=color, mfc='none')  # ,
+                     #label='$\mu(MSE) \pm \sigma(MSE)$')
+
+        ax2.errorbar(1, min_MSE_2_qubits, fmt='D', mec=color, mfc='none')  # , label='min(MSE)')
+        ax2.errorbar(1, mean_MSE_2_qubits, yerr=std_MSE_2_qubits, fmt='o', mec=color, mfc='none')  # ,
+                     #label='$\mu(MSE) \pm \sigma(MSE)$')
+
+        ax3.errorbar(1, min_MSE_2_qubits, fmt='D', mec=color, mfc='none')  # , label='min(MSE)')
+        ax3.errorbar(1, mean_MSE_2_qubits, yerr=std_MSE_2_qubits, fmt='o', mec=color, mfc='none')  # ,
+                     #label='$\mu(MSE) \pm \sigma(MSE)$')
+
+        # create second y-axis sharing same x-axis
+        ax4 = ax1.twinx()
+        ax5 = ax2.twinx()
+        ax6 = ax3.twinx()
+
+        # plot second dataset with error bars
+        color = 'tab:green'
+        ax4.errorbar(no_layers_list, prob_rare_trajectory_1_qubit_list, fmt='s', color=color)
+        ax4.errorbar(1, prob_rare_trajectory_2_qubits, fmt='s', mec=color, mfc='none')
+
+        ax5.errorbar(no_layers_list, prob_rare_trajectory_1_qubit_list, fmt='s', color=color)
+        ax5.errorbar(1, prob_rare_trajectory_2_qubits, fmt='s', mec=color, mfc='none')
+
+        ax6.errorbar(no_layers_list, prob_rare_trajectory_1_qubit_list, fmt='s', color=color)
+        ax6.errorbar(1, prob_rare_trajectory_2_qubits, fmt='s', mec=color, mfc='none')
+
+        # adjust plots
+        ax1.spines['right'].set_visible(False)
+        ax2.spines['left'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+        ax3.spines['left'].set_visible(False)
+        ax4.spines['right'].set_visible(False)
+        ax5.spines['left'].set_visible(False)
+        ax5.spines['right'].set_visible(False)
+        ax6.spines['left'].set_visible(False)
+
+        ax1.set_xlim(0., 6.)
+        ax2.set_xlim(9., 11.)
+        ax3.set_xlim(14., 16.)
+
+        ax1.set_ylim(0.0, 1.01 * mean_MSE_2_qubits)
+        ax2.set_ylim(0.0, 1.01 * mean_MSE_2_qubits)
+        ax3.set_ylim(0.0, 1.01 * mean_MSE_2_qubits)
+        ax4.set_ylim(0.0, 1.0)
+        ax5.set_ylim(0.0, 1.0)
+        ax6.set_ylim(0.0, 1.0)
+
+        ax1.set_xticks([1, 2, 3, 4, 5])
+        ax1.set_xticklabels([1, 2, 3, 4, 5])
+        ax2.set_xticks([10])
+        ax2.set_xticklabels([10])
+        ax3.set_xticks([15])
+        ax3.set_xticklabels([15])
+
+        tick_step = 1.01 * mean_MSE_2_qubits / 5.
+        ax1.set_yticks([0., tick_step, 2 * tick_step, 3 * tick_step, 4 * tick_step, 5 * tick_step])
+        ax1.set_yticklabels(
+            [f"{x:.2f}" for x in [0., tick_step, 2 * tick_step, 3 * tick_step, 4 * tick_step, 5 * tick_step]])
+        ax1.tick_params(axis='y', which='both', labelleft=True, left=True)
+        ax2.set_yticks([])
+        ax2.set_yticklabels([])
+        ax3.set_yticks([])
+        ax3.set_yticklabels([])
+
+        ax4.set_yticks([])
+        ax4.set_yticklabels([])
+        ax5.set_yticks([])
+        ax5.set_yticklabels([])
+
+        color = 'tab:red'
+        ax1.set_ylabel('mean squared error (MSE)', color=color)
+        ax1.tick_params(axis='y', labelcolor=color)
+
+        color = 'tab:green'
+        ax6.set_ylabel('prob. rare trajectory $P(x_T = 0)$', color=color)
+        ax6.tick_params(axis='y', labelcolor=color)
+
+        fig.add_subplot(111, frameon=False)
+        # hide tick and tick label of the big axis
+        plt.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        plt.xlabel('# data-uploading layers')
+
+        #ax2.legend(loc='upper right', fontsize=12)  # , labels=['Quantity 1', 'Quantity 2'])
+
+        fig.tight_layout()
+
+        fig.savefig("plot_table_results_few_qubits_cases.pdf", bbox_inches="tight")
 
         plt.show()

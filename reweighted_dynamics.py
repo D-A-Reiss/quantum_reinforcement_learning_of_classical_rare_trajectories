@@ -5,43 +5,67 @@ from utilities import plot_prob_distribution
 
 # ROUTINES ######
 class ReweightedDynamics:
-    def __init__(self, T: int, s: float):
+    def __init__(self, T: int, s: float, x_0=0., prob_step_up=0.5, calc_value_function=True):
+        # save inputs
+        self.T = T
+        self.s = s
+
+        """
         # initialize arrays
         self.g_prime_array = np.empty((T + 1, 2 * T + 1))
         self.g_prime_array[:] = np.nan
 
         # calculate gauge transformation and reweighted dynamics
-        self.calc_gauge_transformation(0, 0, T, s)
+        self.calc_gauge_transformation_recursively(0, 0, T, s, x_0=x_0)
         for x in 2 * np.arange(T + 1) - T:
-            self.calc_gauge_transformation(x, T, T, s)
+            self.calc_gauge_transformation_recursively(x, T, T, s, x_0=x_0)
+        """
 
-        self.P_W_array = self.calc_reweighted_dynamics(T, s, self.g_prime_array)
+        self.g_array = self.calc_gauge_transformation_array(T, s, x_0=x_0, prob_step_up=prob_step_up)
+
+        self.partition_function_Z = self.calc_partition_function(self.g_array, T)
+
+        # plot_prob_distribution(T, self.g_array, set_title=False, title="$g$ ")
+
+        self.P_W_array = self.calc_reweighted_dynamics(T, s, self.g_array, x_0=x_0, prob_step_up=prob_step_up)
 
         # plot reweighted dynamics
         plot_prob_distribution(T, self.P_W_array, set_title=False, title="$P_W$ ")
 
         # calculate and plot value functions for original and reweighted dynamics
-        self.P_array = np.where(np.isnan(self.P_W_array), np.nan, 1/2)
+        if calc_value_function:
+            self.P_array = np.where(np.isnan(self.P_W_array), np.nan, 1/2)
 
-        self.value_func_array = np.empty((T + 1, 2 * T + 1))
-        self.value_func_array[:] = np.nan
-        self.calc_value_function(0, 0, T, s, self.P_array, self.P_array)
+            self.value_func_array = np.empty((T + 1, 2 * T + 1))
+            self.value_func_array[:] = np.nan
+            self.calc_value_function(0, 0, T, s, self.P_array, self.P_array)
 
-        plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P}$ ", diff=True)
+            plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P}$", diff=True)
 
-        self.value_func_array = np.empty((T + 1, 2 * T + 1))
-        self.value_func_array[:] = np.nan
-        self.calc_value_function(0, 0, T, s, self.P_W_array, self.P_array)
+            self.value_func_array = np.empty((T + 1, 2 * T + 1))
+            self.value_func_array[:] = np.nan
+            self.calc_value_function(0, 0, T, s, self.P_W_array, self.P_array)
 
-        plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P_W}$ ", diff=True)
+            plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P_W}$", diff=True)
 
 
     @staticmethod
-    def calc_weight_function(x: float, s: float):
-        return np.exp(- s * x**2)
+    def calc_weight_function(x: float, s: float, x_0=0.):
+        """
+
+        :param x:
+        :param s:
+        :return:
+        """
+        return np.exp(- s * (x - x_0)**2)
 
 
-    def calc_gauge_transformation(self, x: int, t: int, T: int, s: float) -> float:
+    @staticmethod
+    def calc_partition_function(g_array: np.ndarray, T: int):
+        return g_array[0, T]
+
+
+    def calc_gauge_transformation_recursively(self, x: int, t: int, T: int, s: float, x_0=0.) -> float:
         """
         Calculates gauge transformation for balanced random walk bridges with softened constraint,
         called g' by Rose et al. ('21), by recursion
@@ -59,28 +83,58 @@ class ReweightedDynamics:
             g_prime_value = 1
 
         elif t == T - 1:
-            g_prime_value = self.calc_weight_function(x + 1, s) + self.calc_weight_function(x - 1, s)
+            g_prime_value = self.calc_weight_function(x + 1, s, x_0=x_0) + self.calc_weight_function(x - 1, s, x_0=x_0)
 
         else:
-            g_prime_value = (self.calc_gauge_transformation(x + 1, t + 1, T, s)
-                             + self.calc_gauge_transformation(x - 1, t + 1, T, s))
+            g_prime_value = (self.calc_gauge_transformation_recursively(x + 1, t + 1, T, s)
+                             + self.calc_gauge_transformation_recursively(x - 1, t + 1, T, s))
 
-        self.g_prime_array[t, x + T] = g_prime_value
+        self.g_array[t, x + T] = g_prime_value
 
         return g_prime_value
 
 
+    def calc_gauge_transformation_array(self, T: int, s: float, x_0=0., prob_step_up=0.5):
+        # initialization
+        g_array = np.empty((T + 1, 2 * T + 1))
+        g_array[:] = np.nan
+
+        def calc_g_value(x: int, t: int):
+            if t == T:
+                return 1
+
+            elif t == T - 1:
+                return prob_step_up * self.calc_weight_function(x + 1, s, x_0=x_0) \
+                    + (1 - prob_step_up) * self.calc_weight_function(x - 1, s, x_0=x_0)
+
+            else:
+                return prob_step_up * g_array[t + 1, x + 1 + T] \
+                    + (1 - prob_step_up) * g_array[t + 1, x - 1 + T]
+
+        for t in np.arange(T + 1)[::-1]:
+            for x in np.arange(- t, t + 1, 2):
+                g_array[t, x + T] = calc_g_value(x, t)
+
+        print(g_array)
+        return g_array
+
+
+
     @staticmethod
-    def calc_reweighted_dynamics(T: int, s: float, g_prime_array: np.ndarray):
+    def calc_reweighted_dynamics(T: int, s: float, g_array: np.ndarray, x_0=0., prob_step_up=0.5):
         """
         Calculates reweighted dynamics, called P_W by Rose et al. ('21)
+        :param T:
+        :param s:
+        :param g_array:
         :return:
         """
         x_values = np.arange(- T + 1, T)
         weights_array = np.ones((T, 2 * T - 1))
-        weights_array[T - 1, :] = np.exp(- s * (x_values + 1)**2)  # weights for up-step in last step
+        #weights_array[T - 1, :] = np.exp(- s * (x_values + 1)**2)  # weights for up-step in last step
+        weights_array[T - 1, :] = ReweightedDynamics.calc_weight_function(x_values + 1, s, x_0=x_0)
 
-        P_W_array = g_prime_array[1:, 2:] / g_prime_array[:-1, 1:-1] * weights_array
+        P_W_array = g_array[1:, 2:] / g_array[:-1, 1:-1] * weights_array * prob_step_up
         # P_W_array only saves probabilities to go 1 step up (that to go 1 step down is given by normalization)
 
         return P_W_array
@@ -89,6 +143,17 @@ class ReweightedDynamics:
     @staticmethod
     def calc_reward(x_t: int, x_prev_t: int, t: int, T: int, s: float,
                     p_theta_distribution: np.ndarray, p_distribution: np.ndarray):
+        """
+
+        :param x_t:
+        :param x_prev_t:
+        :param t:
+        :param T:
+        :param s:
+        :param p_theta_distribution:
+        :param p_distribution:
+        :return:
+        """
         if t == T:
             weight = ReweightedDynamics.calc_weight_function(x_t, s)
         else:
@@ -105,6 +170,16 @@ class ReweightedDynamics:
 
     def calc_value_function(self, x: int, t: int, T: int, s: float,
                             p_theta_distribution: np.ndarray, p_distribution: np.ndarray):
+        """
+
+        :param x:
+        :param t:
+        :param T:
+        :param s:
+        :param p_theta_distribution:
+        :param p_distribution:
+        :return:
+        """
         # Bellman eq. adapted to our random walk
         if t == T:
             value_func_val = 0.
