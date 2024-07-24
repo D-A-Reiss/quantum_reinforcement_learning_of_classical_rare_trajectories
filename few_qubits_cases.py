@@ -406,7 +406,7 @@ class FourierCoeffs:
 
 
     @staticmethod
-    def calc_unitary_transform_2_qubits_1_layer(thetas: np.ndarray, dagger: bool):
+    def calc_unitary_transform_2_qubits_1_layer(thetas: np.ndarray, four_thetas: bool, dagger: bool):
         """
 
         :param thetas:
@@ -414,28 +414,37 @@ class FourierCoeffs:
         :return:
         """
         # asserts
-        assert len(thetas) == 4, "if four_thetas == True, thetas must be of length 4"
+        if four_thetas:
+            assert len(thetas) == 4, "if four_thetas == True, thetas must be of length 4"
+        else:
+            assert len(thetas) == 2, "if four_thetas == False, thetas must be of length 3"
 
         # compute unitary transform for 1 layer
         x, t = sp.symbols("x, t")
 
         if not dagger:
-            unitary_transform = (ctrl_z(sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 2, thetas[3], "z", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 2, thetas[2], "y", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 2, x, "x", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 1, thetas[1], "z", sympy_expr=True)
+            unitary_transform = (r_n_multi_qubit(2, 2, thetas[1], "y", sympy_expr=True)
                                  @ r_n_multi_qubit(2, 1, thetas[0], "y", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, x, "x", sympy_expr=True)
                                  @ r_n_multi_qubit(2, 1, t, "x", sympy_expr=True))
+
+            if four_thetas:
+                unitary_transform = (ctrl_z(sympy_expr=True)
+                                     @ r_n_multi_qubit(2, 2, thetas[3], "z", sympy_expr=True)
+                                     @ r_n_multi_qubit(2, 1, thetas[2], "z", sympy_expr=True)
+                                     @ unitary_transform)
 
         else:
             unitary_transform = (r_n_multi_qubit(2, 1, -t, "x", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 1, -thetas[0], "y", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 1, -thetas[1], "z", sympy_expr=True)
                                  @ r_n_multi_qubit(2, 2, -x, "x", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 2, -thetas[2], "y", sympy_expr=True)
-                                 @ r_n_multi_qubit(2, 2, -thetas[3], "z", sympy_expr=True)
-                                 @ ctrl_z(sympy_expr=True))
+                                 @ r_n_multi_qubit(2, 1, -thetas[0], "y", sympy_expr=True)
+                                 @ r_n_multi_qubit(2, 2, -thetas[1], "y", sympy_expr=True))
+
+            if four_thetas:
+                unitary_transform = (unitary_transform @
+                                     r_n_multi_qubit(2, 1, -thetas[2], "z", sympy_expr=True)
+                                     @ r_n_multi_qubit(2, 2, -thetas[3], "z", sympy_expr=True)
+                                     @ ctrl_z(sympy_expr=True))
 
         return unitary_transform
 
@@ -455,18 +464,27 @@ class FourierCoeffs:
             "obs must be a Hermitian 4x4-matrix"
 
         if theta_vals is not None:
-            assert len(theta_vals) == 4 * no_layers, "thetas must be of length 4 * no_layers"
+            assert len(theta_vals) == 4 * no_layers - 2, "thetas must be of length 4 * no_layers - 2"
 
         # compute generic forms of unitary transforms for layers
         alpha, beta, gamma, delta = sp.symbols("alpha, beta, gamma, delta")
         generic_thetas = np.array([alpha, beta, gamma, delta])
 
-        unitary_1_layer = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas, False)
-        unitary_1_layer_dagger = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas, True)
+        if np.all(np.array(obs) == tensor_prod(sigma_z, sigma_z)):
+            unitary_last_layer = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas[:2],
+                                                                                       False, False)
+            unitary_last_layer_dagger = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas[:2],
+                                                                                              False, True)
+
+        if not np.all(np.array(obs) == tensor_prod(sigma_z, sigma_z)) or no_layers > 1:
+            unitary_1_layer = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas,
+                                                                                    True, False)
+            unitary_1_layer_dagger = FourierCoeffs.calc_unitary_transform_2_qubits_1_layer(generic_thetas,
+                                                                                           True, True)
 
         # multiply unitary transforms for layers
         if theta_vals is None:
-            no_thetas = 4 * no_layers
+            no_thetas = 4 * no_layers - 2
             thetas = sp.symbols("theta1:" + str(no_thetas + 1))
             symbolic = True
         else:
@@ -476,15 +494,27 @@ class FourierCoeffs:
         unitary = np.identity(4)
         unitary_dagger = np.identity(4)
 
-        for n in range(no_layers):
+        if np.all(np.array(obs) == tensor_prod(sigma_z, sigma_z)):
+            n_max = no_layers - 1
+        else:
+            n_max = no_layers
+
+
+        for n in range(n_max):
             subs_dict = {alpha: thetas[4 * n + 0], beta: thetas[4 * n + 1],
                          gamma: thetas[4 * n + 2], delta: thetas[4 * n + 3]}
 
             unitary = FourierCoeffs.param_subs(unitary_1_layer, subs_dict, symbolic) @ unitary
             unitary_dagger = unitary_dagger @ FourierCoeffs.param_subs(unitary_1_layer_dagger, subs_dict, symbolic)
 
+        if np.all(np.array(obs) == tensor_prod(sigma_z, sigma_z)):
+            subs_dict = {alpha: thetas[-3], beta: thetas[-2], gamma: thetas[-1]}
+
+            unitary = FourierCoeffs.param_subs(unitary_last_layer, subs_dict, symbolic) @ unitary
+            unitary_dagger = unitary_dagger @ FourierCoeffs.param_subs(unitary_last_layer_dagger, subs_dict, symbolic)
+
         expectation_val = (unitary_dagger @ obs @ unitary)[0, 0]
-        # [0, 0] because initial state of quantum circuit is |00>
+        # [0, 0] because initial state of quantum circuit is |0>
 
         return expectation_val
         # return sp.simplify(expectation_val)
@@ -642,8 +672,20 @@ class FourierCoeffs:
 
 class ReinforcementLearningFits:
     def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int,
-                 no_trajectories: int, set_title=True, theta_fits=True, optimized_params_fourier_coeffs: np.ndarray=None,
-                 optimized_no_layers: int = None):
+                 no_trajectories: int, no_qubits=1, set_title=True, theta_fits=True,
+                 optimized_params_fourier_coeffs: np.ndarray=None, optimized_no_layers: int = None):
+        """
+        # TODO
+        :param reweighted_dynamics:
+        :param T:
+        :param no_layers:
+        :param no_fits:
+        :param no_trajectories:
+        :param set_title:
+        :param theta_fits:
+        :param optimized_params_fourier_coeffs:
+        :param optimized_no_layers:
+        """
         # save inputs
         self.T = T
         self.no_layers = no_layers
@@ -681,9 +723,9 @@ class ReinforcementLearningFits:
         """
 
         ### fits to reweighted dynamics
-        ## fits in terms of variational parameters thetas
         file_name = str(no_layers) + "_layers_" + str(no_fits) + "_fits"
 
+        ## fits in terms of variational parameters thetas
         if theta_fits:
             # fits starting from symbolic computation of Fourier coefficients as functions of thetas
             if no_layers == 1:
@@ -696,51 +738,64 @@ class ReinforcementLearningFits:
                                                      plot_diff=True)
 
             # fits starting from SymPy expressions
-            self.softmax_policy_lambdified = \
-                self.softmax_policy_from_sympy_expr(FourierCoeffs.calc_expectation_value_1_qubit_n_layers(self.no_layers,
-                                                                                                          sp_sigma_z),
-                                                    self.no_layers)
+            if no_qubits == 1:
+                self.softmax_policy_lambdified = \
+                    self.softmax_policy_from_sympy_expr(
+                        FourierCoeffs.calc_expectation_value_1_qubit_n_layers(self.no_layers, sp_sigma_z),
+                        self.no_layers)
+
+            elif no_qubits == 2:
+                self.softmax_policy_lambdified = \
+                    self.softmax_policy_from_sympy_expr(
+                        FourierCoeffs.calc_expectation_value_2_qubits_n_layers(self.no_layers,
+                                                                               tensor_prod(sp_sigma_z, sp_sigma_z,
+                                                                                           sympy_expr=True)),
+                        self.no_layers)
+
+            else:
+                raise NotImplementedError("Case no_qubits > 2 has not been implemented yet.")
 
             self.vals_fitted_func_from_sympy, self.optimized_params_from_sympy, \
                 self.residual_mean_squared_errors_from_sympy = \
-                self.fit_and_plot_softmax_policy("SymPy_1_qubit_" + file_name,
+                self.fit_and_plot_softmax_policy("SymPy_" + str(no_qubits) + "_qubits_" + file_name,
                                                  self.softmax_policy_from_lambdified_expr, self.coords_array, P_W_array,
                                                  T, s, 1, no_layers, no_fits, no_trajectories,
                                                  no_thetas=(4 * self.no_layers - 1), set_title=set_title,
                                                  plot_mask=plot_mask, plot_diff=True)
 
         ## fits in terms of Fourier coefficients (amplitudes and phases)
-        no_pos_freqs = no_layers + 1
-        no_freqs = 2 * no_layers + 1
-
-        if no_layers == 1:
-            self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_1_layer_fourier_coeffs, \
-                self.residual_mean_squared_errors_1_qubit_1_layer_fourier_coeffs = \
-                self.fit_and_plot_softmax_policy("Fourier_coeffs_restricted_1_qubit_" + file_name,
-                                                 self.softmax_policy_1_qubit_1_layer_fourier_coeffs, self.coords_array,
-                                                 P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
-                                                 no_amplitudes=3, no_phases=3, set_title=set_title,
-                                                 plot_mask=plot_mask, plot_diff=True)
-
-            self.vals_fitted_func_2_qubits_fourier_coeffs, \
-                self.optimized_params_2_qubits_1_layer_fourier_coeffs, \
-                self.residual_mean_squared_errors_2_qubits_1_layer_fourier_coeffs = \
-                self.fit_and_plot_softmax_policy("Fourier_coeffs_restricted_2_qubits_" + file_name,
-                                                 self.softmax_policy_2_qubits_1_layer_fourier_coeffs, self.coords_array,
-                                                 P_W_array, T, s, 2, no_layers, no_fits, no_trajectories,
-                                                 no_amplitudes=1, no_phases=0, set_title=set_title,
-                                                 plot_mask=plot_mask, plot_diff=True)
-
         else:
-            self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_fourier_coeffs, \
-                self.residual_mean_squared_errors_1_qubit_fourier_coeffs = \
-                self.fit_and_plot_softmax_policy("1_and_2_qubits_" + file_name, self.softmax_policy, self.coords_array,
-                                                 P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
-                                                 no_amplitudes=no_pos_freqs * no_freqs,
-                                                 no_phases=no_pos_freqs * no_freqs,
-                                                 set_title=set_title, plot_mask=plot_mask, plot_diff=True,
-                                                 optimized_params_fourier_coeffs=optimized_params_fourier_coeffs,
-                                                 optimized_no_layers=optimized_no_layers)
+            no_pos_freqs = no_layers + 1
+            no_freqs = 2 * no_layers + 1
+
+            if no_layers == 1:
+                self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_1_layer_fourier_coeffs, \
+                    self.residual_mean_squared_errors_1_qubit_1_layer_fourier_coeffs = \
+                    self.fit_and_plot_softmax_policy("Fourier_coeffs_restricted_1_qubit_" + file_name,
+                                                     self.softmax_policy_1_qubit_1_layer_fourier_coeffs, self.coords_array,
+                                                     P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
+                                                     no_amplitudes=3, no_phases=3, set_title=set_title,
+                                                     plot_mask=plot_mask, plot_diff=True)
+
+                self.vals_fitted_func_2_qubits_fourier_coeffs, \
+                    self.optimized_params_2_qubits_1_layer_fourier_coeffs, \
+                    self.residual_mean_squared_errors_2_qubits_1_layer_fourier_coeffs = \
+                    self.fit_and_plot_softmax_policy("Fourier_coeffs_restricted_2_qubits_" + file_name,
+                                                     self.softmax_policy_2_qubits_1_layer_fourier_coeffs, self.coords_array,
+                                                     P_W_array, T, s, 2, no_layers, no_fits, no_trajectories,
+                                                     no_amplitudes=1, no_phases=0, set_title=set_title,
+                                                     plot_mask=plot_mask, plot_diff=True)
+
+            else:
+                self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_fourier_coeffs, \
+                    self.residual_mean_squared_errors_1_qubit_fourier_coeffs = \
+                    self.fit_and_plot_softmax_policy("1_and_2_qubits_" + file_name, self.softmax_policy, self.coords_array,
+                                                     P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
+                                                     no_amplitudes=no_pos_freqs * no_freqs,
+                                                     no_phases=no_pos_freqs * no_freqs,
+                                                     set_title=set_title, plot_mask=plot_mask, plot_diff=True,
+                                                     optimized_params_fourier_coeffs=optimized_params_fourier_coeffs,
+                                                     optimized_no_layers=optimized_no_layers)
 
 
     @staticmethod
