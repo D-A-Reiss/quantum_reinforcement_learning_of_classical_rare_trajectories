@@ -1,4 +1,7 @@
 # IMPORTS #####
+import os
+from multiprocessing import Pool
+
 import numpy as np
 import sympy as sp
 import matplotlib as mpl
@@ -179,11 +182,12 @@ def calc_multivariate_fourier_series(f: sp.Expr, x: sp.Symbol, y: sp.Symbol, m_m
     return amp_phase_series, coeffs
 
 
-def fit_multivariate_func_leastsq(func: Callable[[np.ndarray, np.ndarray], np.ndarray], coords_array: np.ndarray,
-                                  data_array: np.ndarray, params_initial_guess: np.ndarray, params_bounds=None,
-                                  asserts=True, no_independent_vars: int = None):
+def fit_func_to_data(func: Callable[[np.ndarray, np.ndarray], np.ndarray], coords_array: np.ndarray,
+                     data_array: np.ndarray, params_initial_guess: np.ndarray, params_bounds=None,
+                     asserts=True, no_independent_vars: int = None, cost_func_type="leastsq",
+                     no_trajectories: int = None, T: int = None, s: float = None):
     """
-    Least-square fit of multivariate function func at coordinates in coords_array to data_array
+    Fit of multivariate function func at coordinates in coords_array to data_array
     :param func:
     :param coords_array:
     :param data_array:
@@ -213,12 +217,52 @@ def fit_multivariate_func_leastsq(func: Callable[[np.ndarray, np.ndarray], np.nd
         assert shape_func_vals_array == shape_data_array, \
             "Shape of func(coords_array, params_initial_guess) must equal shape of data_array!"
 
-    def cost_func(params):
-        # compute values of func for coords_array and params
-        func_vals_array = func(coords_array, params)
+        if cost_func_type == "trajectory_KL_divergence":
+            assert no_trajectories is not None, \
+                'if cost_func_type == "trajectory_KL_divergence", no_trajectories must be provided'
+            assert T is not None, 'if cost_func_type == "trajectory_KL_divergence", T must be provided'
+            assert s is not None, 'if cost_func_type == "trajectory_KL_divergence", s must be provided'
 
-        # compute and return mean squared error as cost, ignoring NaNs
-        return np.nanmean((func_vals_array - data_array) ** 2)
+    # define cost function
+    if cost_func_type == "leastsq":
+        def cost_func(params):
+            # compute values of func for coords_array and params
+            func_vals_array = func(coords_array, params)
+
+            # compute and return mean squared error as cost, ignoring NaNs
+            return np.nanmean((func_vals_array - data_array) ** 2)
+
+    elif cost_func_type == "trajectory_KL_divergence":
+        # generate trajectories for P_W
+        trajectories_x_array_P_W = PolicyEvaluation.calc_trajectories_x_array(no_trajectories, T, data_array)
+
+        # compute return values and estimate average return for P_W
+        return_values_list = PolicyEvaluation.calc_return_values(trajectories_x_array_P_W, T, data_array, s)
+        estimate_avg_return_P_W = sum(return_values_list) / len(return_values_list)
+
+        def cost_func(params):
+            # compute values of func for coords_array and params
+            func_vals_array = func(coords_array, params)
+
+            # generate trajectories for P_theta
+            trajectories_x_array_P_theta = PolicyEvaluation.calc_trajectories_x_array(no_trajectories, T,
+                                                                                      func_vals_array)
+
+            # compute return values and estimate average return for P_theta
+            return_values_list = PolicyEvaluation.calc_return_values(trajectories_x_array_P_theta, T, func_vals_array,
+                                                                     s)
+            estimate_avg_return_P_theta = sum(return_values_list) / len(return_values_list)
+
+            # compute Kullback-Leibler divergence
+            estimate_KL_divergence = estimate_avg_return_P_W - estimate_avg_return_P_theta
+
+            if estimate_KL_divergence < 0:
+                raise ValueError("KL divergence estimate is negative, so no_trajectories is chosen too small")
+            else:
+                return estimate_KL_divergence
+
+    else:
+        raise NotImplementedError(f'Option cost_func_type="{cost_func_type}" has not been implemented yet.')
 
     result = minimize(cost_func, params_initial_guess, bounds=params_bounds)
 
@@ -673,7 +717,8 @@ class FourierCoeffs:
 class ReinforcementLearningFits:
     def __init__(self, reweighted_dynamics: ReweightedDynamics, T: int, no_layers: int, no_fits: int,
                  no_trajectories: int, no_qubits=1, set_title=True, theta_fits=True,
-                 optimized_params_fourier_coeffs: np.ndarray=None, optimized_no_layers: int = None):
+                 optimized_params_fourier_coeffs: np.ndarray=None, optimized_no_layers: int = None,
+                 compute_in_parallel=False, cost_func_type="leastsq"):
         """
         # TODO
         :param reweighted_dynamics:
@@ -735,7 +780,8 @@ class ReinforcementLearningFits:
                                                      self.softmax_policy_1_qubit_1_layer_thetas, self.coords_array,
                                                      P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
                                                      no_thetas=3, set_title=set_title, plot_mask=plot_mask,
-                                                     plot_diff=True)
+                                                     plot_diff=True, compute_in_parallel=compute_in_parallel,
+                                                     cost_func_type=cost_func_type)
 
             # fits starting from SymPy expressions
             if no_qubits == 1:
@@ -761,7 +807,8 @@ class ReinforcementLearningFits:
                                                  self.softmax_policy_from_lambdified_expr, self.coords_array, P_W_array,
                                                  T, s, 1, no_layers, no_fits, no_trajectories,
                                                  no_thetas=(4 * self.no_layers - 1), set_title=set_title,
-                                                 plot_mask=plot_mask, plot_diff=True)
+                                                 plot_mask=plot_mask, plot_diff=True,
+                                                 compute_in_parallel=compute_in_parallel, cost_func_type=cost_func_type)
 
         ## fits in terms of Fourier coefficients (amplitudes and phases)
         else:
@@ -775,7 +822,9 @@ class ReinforcementLearningFits:
                                                      self.softmax_policy_1_qubit_1_layer_fourier_coeffs, self.coords_array,
                                                      P_W_array, T, s, 1, no_layers, no_fits, no_trajectories,
                                                      no_amplitudes=3, no_phases=3, set_title=set_title,
-                                                     plot_mask=plot_mask, plot_diff=True)
+                                                     plot_mask=plot_mask, plot_diff=True,
+                                                     compute_in_parallel=compute_in_parallel,
+                                                     cost_func_type=cost_func_type)
 
                 self.vals_fitted_func_2_qubits_fourier_coeffs, \
                     self.optimized_params_2_qubits_1_layer_fourier_coeffs, \
@@ -784,7 +833,9 @@ class ReinforcementLearningFits:
                                                      self.softmax_policy_2_qubits_1_layer_fourier_coeffs, self.coords_array,
                                                      P_W_array, T, s, 2, no_layers, no_fits, no_trajectories,
                                                      no_amplitudes=1, no_phases=0, set_title=set_title,
-                                                     plot_mask=plot_mask, plot_diff=True)
+                                                     plot_mask=plot_mask, plot_diff=True,
+                                                     compute_in_parallel=compute_in_parallel,
+                                                     cost_func_type=cost_func_type)
 
             else:
                 self.vals_fitted_func_1_qubit_fourier_coeffs, self.optimized_params_1_qubit_fourier_coeffs, \
@@ -795,7 +846,9 @@ class ReinforcementLearningFits:
                                                      no_phases=no_pos_freqs * no_freqs,
                                                      set_title=set_title, plot_mask=plot_mask, plot_diff=True,
                                                      optimized_params_fourier_coeffs=optimized_params_fourier_coeffs,
-                                                     optimized_no_layers=optimized_no_layers)
+                                                     optimized_no_layers=optimized_no_layers,
+                                                     compute_in_parallel=compute_in_parallel,
+                                                     cost_func_type=cost_func_type)
 
 
     @staticmethod
@@ -1088,7 +1141,8 @@ class ReinforcementLearningFits:
                                     no_fits: int, no_trajectories: int, no_thetas: int = None,
                                     no_amplitudes: int = None, no_phases: int = None, set_title=False,
                                     plot_mask: np.ndarray = None, plot_diff=True,
-                                    optimized_params_fourier_coeffs: np.ndarray = None, optimized_no_layers: int = None):
+                                    optimized_params_fourier_coeffs: np.ndarray = None, optimized_no_layers: int = None,
+                                    compute_in_parallel=False, cost_func_type="leastsq"):
         """
 
         :param softmax_policy:
@@ -1114,47 +1168,50 @@ class ReinforcementLearningFits:
         progress_bar = ProgressBar(no_fits, "Fits for " + file_name +
                                    " starting from different random choices of parameters")
 
-        for i in range(no_fits):
-            # update progress_bar due to progress
-            progress_bar.update(i)
+        single_job_params = [no_thetas, no_amplitudes, no_phases, optimized_params_fourier_coeffs,
+                             optimized_no_layers, no_layers, softmax_policy, coords_array, data_array, cost_func_type,
+                             no_trajectories, T, s]
+        # it remains to append #fits (to be done by single job) to single_job_params
 
-            if no_thetas is not None:
-                initial_scalings = np.random.standard_normal(3)
-                initial_thetas = 2 * np.pi * np.random.random(no_thetas)
-                initial_params = np.insert(initial_scalings, 2, initial_thetas)
-                # inserts initial_thetas into initial_scalings starting at position 2
+        if compute_in_parallel:
+            cpu_count = os.cpu_count()
+            job_size = no_fits // (cpu_count - 1)
+            rest_size = no_fits % (cpu_count - 1)
+            job_params = []
 
-                bounds_params = ([(-np.inf, np.inf)] * 2
-                                 + [(0., 2 * np.pi)] * no_thetas
-                                 + [(-np.inf, np.inf)])
+            for cpu_index in range(cpu_count):
+                # compute #fits to be done by single job
+                single_job_no_fits = job_size if cpu_index < (cpu_count - 1) else rest_size
 
-            if no_amplitudes is not None and no_phases is not None:
-                if optimized_params_fourier_coeffs is None or optimized_no_layers is None:
-                    initial_scalings = np.random.standard_normal(3 + no_amplitudes)
-                    initial_phases = 2 * np.pi * np.random.random(no_phases)
-                    initial_params = np.insert(initial_scalings, 2 + no_amplitudes, initial_phases)
-                    # inserts initial_phases into initial_scalings starting at position 2 + no_amplitudes
+                # append #fits (to be done by single job) to single_job_params
+                # and append single_job_params to job_params
+                job_params.append(single_job_params + [single_job_no_fits])
 
-                else:
-                    initial_params = np.zeros(2 + no_amplitudes + no_phases + 1)
-                    initial_params = \
-                        ReinforcementLearningFits.insert_optimized_params_into_larger_params_array(optimized_params_fourier_coeffs,
-                                                                                                   initial_params,
-                                                                                                   optimized_no_layers,
-                                                                                                   no_layers)
+            progress_bar.update()
 
-                bounds_params = ([(-np.inf, np.inf)] * (2 + no_amplitudes)
-                                 + [(0., 2 * np.pi)] * no_phases
-                                 + [(-np.inf, np.inf)])
+            with Pool() as pool:
+                for task_result in pool.imap_unordered(
+                        ReinforcementLearningFits.fit_softmax_policy_parallelizable, job_params):
 
-            optimized_params, mean_squared_error = \
-                fit_multivariate_func_leastsq(softmax_policy, coords_array, data_array,
-                                              params_initial_guess=initial_params,
-                                              params_bounds=bounds_params,
-                                              no_independent_vars=2)
+                    mean_squared_error_sublist, optimized_params_sublist = task_result
 
-            mean_squared_error_list.append(mean_squared_error)
-            optimized_params_list.append(optimized_params)
+                    mean_squared_error_list += mean_squared_error_sublist
+                    optimized_params_list += optimized_params_sublist
+
+                    progress_bar.update(step=progress_bar.i + len(mean_squared_error_sublist))
+
+        else:
+            single_job_params.append(1)  # append #fits = 1 (to be done by single job) to single_job_params
+
+            for i in range(no_fits):
+                # update progress_bar due to progress
+                progress_bar.update(i)
+
+                mean_squared_error_sublist, optimized_params_sublist = \
+                    ReinforcementLearningFits.fit_softmax_policy_parallelizable(single_job_params)
+
+                mean_squared_error_list += mean_squared_error_sublist
+                optimized_params_list += optimized_params_sublist
 
         # finish progress bar
         progress_bar.finish()
@@ -1188,6 +1245,61 @@ class ReinforcementLearningFits:
                                   policy_evaluation.return_values_list, plot_name=file_name + "_P_to_go_1_step_down")
 
         return vals_fitted_func_array, optimized_params_min, mean_squared_error_list
+
+
+    @staticmethod
+    def fit_softmax_policy_parallelizable(job_params):
+        """
+        # TODO
+        """
+        # initializations
+        no_thetas, no_amplitudes, no_phases, optimized_params_fourier_coeffs, optimized_no_layers, no_layers, \
+            softmax_policy, coords_array, data_array, cost_func_type, no_trajectories, T, s, no_fits = job_params
+
+        mean_squared_error_sublist = []
+        optimized_params_sublist = []
+
+        for fit in range(no_fits):
+            if no_thetas is not None:
+                initial_scalings = np.random.standard_normal(3)
+                initial_thetas = 2 * np.pi * np.random.random(no_thetas)
+                initial_params = np.insert(initial_scalings, 2, initial_thetas)
+                # inserts initial_thetas into initial_scalings starting at position 2
+
+                bounds_params = ([(-np.inf, np.inf)] * 2
+                                 + [(0., 2 * np.pi)] * no_thetas
+                                 + [(-np.inf, np.inf)])
+
+            if no_amplitudes is not None and no_phases is not None:
+                if optimized_params_fourier_coeffs is None or optimized_no_layers is None:
+                    initial_scalings = np.random.standard_normal(3 + no_amplitudes)
+                    initial_phases = 2 * np.pi * np.random.random(no_phases)
+                    initial_params = np.insert(initial_scalings, 2 + no_amplitudes, initial_phases)  # FIXME
+                    # inserts initial_phases into initial_scalings starting at position 2 + no_amplitudes
+
+                else:
+                    initial_params = np.zeros(2 + no_amplitudes + no_phases + 1)
+                    initial_params = \
+                        ReinforcementLearningFits.insert_optimized_params_into_larger_params_array(
+                            optimized_params_fourier_coeffs,
+                            initial_params,
+                            optimized_no_layers,
+                            no_layers)
+
+                bounds_params = ([(-np.inf, np.inf)] * (2 + no_amplitudes)
+                                 + [(0., 2 * np.pi)] * no_phases
+                                 + [(-np.inf, np.inf)])
+
+            optimized_params, mean_squared_error = \
+                fit_func_to_data(softmax_policy, coords_array, data_array,
+                                 params_initial_guess=initial_params, params_bounds=bounds_params,
+                                 no_independent_vars=2, cost_func_type=cost_func_type, no_trajectories=no_trajectories,
+                                 T=T, s=s)
+
+            mean_squared_error_sublist.append(mean_squared_error)
+            optimized_params_sublist.append(optimized_params)
+
+        return mean_squared_error_sublist, optimized_params_sublist
 
 
 class PolicyEvaluation:
