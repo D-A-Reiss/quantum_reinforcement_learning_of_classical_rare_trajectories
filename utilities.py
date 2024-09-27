@@ -152,7 +152,7 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
     else:
         im = ax.imshow(prob_array, cmap='viridis')
 
-    fig.colorbar(im, cax=cax, orientation='vertical')
+    fig.colorbar(im, cax=cax, orientation='vertical', label="log$_{10}(- V_{P_W}(x, t))$")
 
     # set title, labels, ticks, and limits
     if set_title:

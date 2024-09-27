@@ -36,17 +36,19 @@ class ReweightedDynamics:
         if calc_value_function:
             self.P_array = np.where(np.isnan(self.P_W_array), np.nan, 1/2)
 
+            """
             self.value_func_array = np.empty((T + 1, 2 * T + 1))
             self.value_func_array[:] = np.nan
             self.calc_value_function(0, 0, T, s, self.P_array, self.P_array)
 
             plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P}$", diff=True)
+            """
 
             self.value_func_array = np.empty((T + 1, 2 * T + 1))
             self.value_func_array[:] = np.nan
             self.calc_value_function(0, 0, T, s, self.P_W_array, self.P_array)
 
-            plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P_W}$", diff=True)
+            plot_prob_distribution(T, np.log10(-self.value_func_array), set_title=False, title="$V_{P_W}$", diff=True)
 
 
     @staticmethod

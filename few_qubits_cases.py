@@ -1304,7 +1304,7 @@ class ReinforcementLearningFits:
 
 class PolicyEvaluation:
     def __init__(self, T: int, policy_array: np.ndarray, no_trajectories: int, s: float,
-                 reweighted_dynamics: ReweightedDynamics = None):
+                 reweighted_dynamics: ReweightedDynamics = None, average_return_estimate_P_W = None):
         # IDEA: implement this class to evaluate the policy policy_array by computing:
         # - average return of no_trajectories trajectories
         # - probability to generate a rare trajectory (random-walk bridge) for no_trajectories trajectories
@@ -1318,6 +1318,10 @@ class PolicyEvaluation:
         if reweighted_dynamics is not None:
             self.Kullback_Leibler_divergence_estimate = - self.average_return_estimate \
                                                         + reweighted_dynamics.partition_function_Z
+
+        if average_return_estimate_P_W is not None:
+            self.Kullback_Leibler_divergence_estimate = - self.average_return_estimate \
+                                                        + average_return_estimate_P_W
 
         self.prob_rare_trajectory = self.calc_prob_rare_trajectory(self.trajectories_x_array, T)
 
