@@ -138,13 +138,23 @@ def format_delta_time(time_in_seconds: float) -> str:
 
 
 def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title="", plot_mask: np.ndarray = None,
-                           diff=False):
+                           plot_complement=False, save_fig_as: str = None):
     """
-    Plots probability distributions as functions of t and x in terms of heat maps
-    :param title:
-    :param T:
-    :param prob_array:
-    :return:
+    Plot probability distribution/policy as function of t and x in form of a heat map and save it as PDF.
+
+    Parameters:
+        T: maximal time
+        prob_array: array of probabilities to be plotted
+        set_title: if True, set title of plot
+        title: title of plot
+        plot_mask: mask for plotting (if None, plot all values of prob_array)
+            (e.g., for consistency with plot of P_W,
+            plot_mask = np.isnan(reweighted_dynamics.P_W_array) with reweighted_dynamics: ReweightedDynamics)
+        plot_complement: if True, plot 1 - prob_array
+        save_fig_as: if not None, save plot as PDF with name save_fig_as (if None, title + standard suffix is used)
+
+    Returns:
+        None
     """
     # prepare prob_array for imshow
     if plot_mask is not None:
@@ -154,7 +164,7 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
     # now indices x,t
     # prob_array = prob_array[::-1, :]
 
-    if not diff:
+    if plot_complement:
         prob_array = 1 - prob_array
 
     # plot as heat map
@@ -162,7 +172,7 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
 
-    if not diff:
+    if plot_complement:
         im = ax.imshow(prob_array, cmap='viridis', vmin=0., vmax=1.)
     else:
         im = ax.imshow(prob_array, cmap='viridis')
@@ -184,36 +194,16 @@ def plot_prob_distribution(T: int, prob_array: np.ndarray, set_title=True, title
                   labels=[str(-2 * T//4), str(-1 * T//4), str(0), str(1 * T//4), str(2 * T//4)])
 
     # save plot
-    fig.savefig(title + "_P_to_go_1_step_down.pdf", bbox_inches="tight")
+    if save_fig_as is not None:
+        fig.savefig(save_fig_as, bbox_inches="tight")
+
+    elif plot_complement:
+        fig.savefig(title + "_to_go_1_step_down.pdf", bbox_inches="tight")
+
+    else:
+        fig.savefig(title + "_to_go_1_step_up.pdf", bbox_inches="tight")
 
     plt.show()
-
-    """
-    # plot as weighted graph
-    # to this end use
-    # https://stackoverflow.com/questions/28372127/add-edge-weights-to-plot-output-in-networkx
-    # https://networkx.org/documentation/stable/reference/generated/networkx.convert_matrix.from_numpy_array.html
-
-    # construct adjacency matrix
-    no_t, no_x = np.shape(P_W_array)
-    no_vertices = (no_t + 1) * (no_x + 2)
-    adjacency_matrix = np.zeros((no_vertices, no_vertices))
-
-    for t in range(no_t):
-        for x in range(no_x):
-            vertex = t * no_x + x
-            vertex_step_up = (t + 1) * no_x + (x + 1)
-            vertex_step_down = (t + 1) * no_x + (x - 1)
-
-            adjacency_matrix[vertex, vertex_step_up] = adjacency_matrix[vertex_step_up, vertex] = \
-                P_W_array[t, x]
-            adjacency_matrix[vertex, vertex_step_down] = adjacency_matrix[vertex_step_down, vertex] = \
-                (1 - P_W_array[t, x])
-
-            graph = nx.from_numpy_array(adjacency_matrix)
-            nx.draw(graph)
-            plt.show()
-    """
 
 
 def save_obj(obj, file_name):
