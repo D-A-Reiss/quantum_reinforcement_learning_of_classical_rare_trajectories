@@ -13,14 +13,12 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 """
 
 
-# IMPORTS #####
 import numpy as np
 from utilities import plot_prob_distribution
 
 
-# ROUTINES ######
 class ReweightedDynamics:
-    def __init__(self, T: int, s: float, x_0=0., prob_step_up=0.5, calc_value_function=True):
+    def __init__(self, T: int, s: float, x_0=0., prob_step_up=0.5):
         # save inputs
         self.T = T
         self.s = s
@@ -40,30 +38,13 @@ class ReweightedDynamics:
 
         self.partition_function_Z = self.calc_partition_function(self.g_array, T)
 
-        # plot_prob_distribution(T, self.g_array, set_title=False, title="$g$ ")
+        # plot_prob_distribution(T, self.g_array, set_title=False, title="$g$ ", plot_complement=True)
 
         self.P_W_array = self.calc_reweighted_dynamics(T, s, self.g_array, x_0=x_0, prob_step_up=prob_step_up)
 
         # plot reweighted dynamics
-        plot_prob_distribution(T, self.P_W_array, set_title=False, title="$P_W$ ")
+        plot_prob_distribution(T, self.P_W_array, set_title=False, title="$P_W$ ", plot_complement=True)
 
-        # calculate and plot value functions for original and reweighted dynamics
-        if calc_value_function:
-            self.P_array = np.where(np.isnan(self.P_W_array), np.nan, 1/2)
-
-            """
-            self.value_func_array = np.empty((T + 1, 2 * T + 1))
-            self.value_func_array[:] = np.nan
-            self.calc_value_function(0, 0, T, s, self.P_array, self.P_array)
-
-            plot_prob_distribution(T, np.log(-self.value_func_array), set_title=False, title="$V_{P}$", diff=True)
-            """
-
-            self.value_func_array = np.empty((T + 1, 2 * T + 1))
-            self.value_func_array[:] = np.nan
-            self.calc_value_function(0, 0, T, s, self.P_W_array, self.P_array)
-
-            plot_prob_distribution(T, np.log10(-self.value_func_array), set_title=False, title="$V_{P_W}$", diff=True)
 
 
     @staticmethod
@@ -157,71 +138,5 @@ class ReweightedDynamics:
         return P_W_array
 
 
-    @staticmethod
-    def calc_reward(x_t: int, x_prev_t: int, t: int, T: int, s: float,
-                    p_theta_distribution: np.ndarray, p_distribution: np.ndarray):
-        """
 
-        :param x_t:
-        :param x_prev_t:
-        :param t:
-        :param T:
-        :param s:
-        :param p_theta_distribution:
-        :param p_distribution:
-        :return:
-        """
-        if t == T:
-            weight = ReweightedDynamics.calc_weight_function(x_t, s)
-        else:
-            weight = 1
-
-        p_theta = p_theta_distribution[t - 1, x_prev_t + T - 1]
-        p = p_distribution[t - 1, x_prev_t + T - 1]
-
-        if x_t == x_prev_t + 1:
-            return np.log(weight) - np.log(p_theta) + np.log(p)
-        elif x_t == x_prev_t - 1:
-            return np.log(weight) - np.log(1 - p_theta) + np.log(1 - p)
-
-
-    def calc_value_function(self, x: int, t: int, T: int, s: float,
-                            p_theta_distribution: np.ndarray, p_distribution: np.ndarray):
-        """
-
-        :param x:
-        :param t:
-        :param T:
-        :param s:
-        :param p_theta_distribution:
-        :param p_distribution:
-        :return:
-        """
-        # Bellman eq. adapted to our random walk
-        if t == T:
-            value_func_val = 0.
-        else:
-            p_theta = p_theta_distribution[t, x + T - 1]
-            # regarding the indices consider the simplest example T = 2:
-            # np.shape(p_theta_distribution) = (2, 3) corresponding to values t = 0, 1, and x = -1, 0, 1
-
-            if p_theta == 0.:
-                value_func_val = (1 - p_theta) \
-                                 * (self.calc_value_function(x - 1, t + 1, T, s, p_theta_distribution, p_distribution)
-                                    + self.calc_reward(x - 1, x, t + 1, T, s, p_theta_distribution, p_distribution))
-            elif p_theta == 1.:
-                value_func_val = p_theta \
-                                 * (self.calc_value_function(x + 1, t + 1, T, s, p_theta_distribution, p_distribution)
-                                    + self.calc_reward(x + 1, x, t + 1, T, s, p_theta_distribution, p_distribution))
-            else:
-                value_func_val = p_theta \
-                                 * (self.calc_value_function(x + 1, t + 1, T, s, p_theta_distribution, p_distribution)
-                                    + self.calc_reward(x + 1, x, t + 1, T, s, p_theta_distribution, p_distribution)) \
-                                 + (1 - p_theta) \
-                                 * (self.calc_value_function(x - 1, t + 1, T, s, p_theta_distribution, p_distribution)
-                                    + self.calc_reward(x - 1, x, t + 1, T, s, p_theta_distribution, p_distribution))
-
-        self.value_func_array[t, x + T - 1] = value_func_val
-
-        return value_func_val
 
