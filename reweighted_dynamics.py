@@ -40,7 +40,7 @@ class ReweightedDynamics(ConsistentParametersClass):
 
     @property
     def all_init_params_dict(self):
-        return {"T": self.T, "s": self.s, "x_0": self.x_T, "prob_step_up": self.prob_step_up}
+        return {"T": self.T, "s": self.s, "x_T": self.x_T, "prob_step_up": self.prob_step_up}
 
 
     @staticmethod
