@@ -15,20 +15,31 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 
 import numpy as np
 from reweighted_dynamics import ReweightedDynamics
+from utilities import ConsistentParametersClass
 
 
-class ValueFunction:
-    def __init__(self, tot_time: int, s: float, p_theta_distribution: np.ndarray):
-        self.total_time = tot_time
+class ValueFunction(ConsistentParametersClass):
+    def __init__(self, T: int, s: float, p_theta_distribution: np.ndarray):
+        super().__init__()
+
+        # save inputs
+        self.T = T
         self.s = s
         self.p_theta_distribution = p_theta_distribution
 
+        # initialization
         self.p_distribution = np.where(np.isnan(p_theta_distribution), np.nan, 1 / 2)
 
-        self.value_func_array = np.empty((tot_time + 1, 2 * tot_time + 1))
+        self.value_func_array = np.empty((T + 1, 2 * T + 1))
         self.value_func_array[:] = np.nan
 
-        self.calc_value_function(0, 0, tot_time, s, p_theta_distribution, self.p_distribution)
+        # compute value function
+        self.calc_value_function(0, 0, T, s, p_theta_distribution, self.p_distribution)
+
+
+    @property
+    def all_init_params_dict(self):
+        return {"T": self.T, "s": self.s}
 
 
     @staticmethod
