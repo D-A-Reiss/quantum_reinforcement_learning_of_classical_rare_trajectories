@@ -16,8 +16,6 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 import csv
 import time
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 from abc import ABC, abstractmethod
 from logging_config import get_logger
 
@@ -57,103 +55,58 @@ def import_params_from_csv(path: str) -> dict:
     return params
 
 
-def write_plot_related_params_to_csv_file(plot_params: dict, path_default_set_params_csv_file: str,
-                                          path_new_csv_file: str) -> None:
-    # TODO: maybe replace this function by one that creates an HTML file with a table of the parameters and their values
-    #   alongside the representative plot
+def einsum_subscripts(*initial_indices: str, final_indices="") -> str:
     """
-    Write parameters related to a plot into a new CSV file.
+    Convert strings of indices in *initial_indices and string of indices in **final_indices to one string suitable as
+    parameter "subscript" of numpy.einsum (see its documentation for details). (The strings can contain numbers, primes,
+    superscripts, etc. like in common physicists' notation, unlike numpy.einsum subscripts.)
 
     Parameters:
-        plot_params: dict of parameter-value pairs related to plot
-        path_default_set_params_csv_file: path to CSV file with default set of parameters for that kind of plot
-        path_new_csv_file: path to new CSV file to be created
-    Returns:
-        None
-    """
-
-    # read CSV file to get default set of parameters
-    default_set_params = import_params_from_csv(path_default_set_params_csv_file)
-
-    # assert that plot_params conforms to default set of parameters
-    assert plot_params.keys() == default_set_params.keys(), \
-        "plot_params does not conform to CSV file path_default_set_params_csv_file"
-
-    # write plot_params to new CSV file
-    with open(path_default_set_params_csv_file, mode='r') as default_file, \
-            open(path_new_csv_file, mode='w', newline='') as new_file:
-        reader = csv.DictReader(default_file)
-
-        writer = csv.DictWriter(new_file, fieldnames=["Parameter", "Value"])
-        writer.writeheader()
-
-        for row in reader:
-            row["Value"] = plot_params[row["Parameter"]]
-            writer.writerow(row)
-
-
-def plot_prob_distribution(T: int, prob_array: np.ndarray, colorbar_label: str, set_title=True, title="",
-                           plot_mask: np.ndarray = None, plot_complement=False, save_fig_as: str = None) -> None:
-    """
-    Plot probability distribution/policy as function of t and x in form of a heat map and save it as PDF.
-
-    Parameters:
-        T: maximal time
-        prob_array: array of probabilities to be plotted
-        colorbar_label: label of the color bar
-        set_title: if True, set title of plot
-        title: title of plot
-        plot_mask: mask for plotting (if None, plot all values of prob_array)
-            (e.g., for consistency with plot of P_W,
-            plot_mask = np.isnan(reweighted_dynamics.P_W_array) with reweighted_dynamics: ReweightedDynamics)
-        plot_complement: if True, plot 1 - prob_array
-        save_fig_as: if not None, save plot as PDF with name save_fig_as
+        *initial_indices: strings of indices for operands of numpy.einsum
+        final_indices: string of indices for result of numpy.einsum
 
     Returns:
-        None
+        translated_indices: string of indices suitable as parameter "subscript" of numpy.einsum
     """
 
-    # prepare prob_array for plotting with imshow
-    if plot_mask is not None:
-        prob_array = np.where(plot_mask, np.nan, prob_array)
+    # initializations
+    letters_list = list(map(chr, range(97, 123)))  # list of all letters in the alphabet
+    indices_dict = {}  # dictionary which contains to correspondences between subscripts in SB21/my notes
+                         # and subscripts conforming with the conventions/requirements of np.einsum
+    initial_indices_lists = [index.split(",") for index in initial_indices]
+    final_indices_list = final_indices.split(",")
+    translated_indices = ""
 
-    prob_array = np.swapaxes(prob_array, 0, 1)
-    # now indices x,t
+    # utility function
+    def translate_and_add(index, translated_indices, indices_dict):
+        # translate index according to indices_dict and add it to string translated_indices
+        if index == "..." or index == "":
+            translated_indices += index
 
-    if plot_complement:
-        prob_array = 1 - prob_array
+        else:
+            translated_indices += indices_dict[index]
 
-    # plot as heat map
-    fig, ax = plt.subplots()
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size='5%', pad=0.05)
+        return translated_indices
 
-    if plot_complement:
-        im = ax.imshow(prob_array, cmap='viridis', vmin=0., vmax=1.)
-    else:
-        im = ax.imshow(prob_array, cmap='viridis')
+    # translate indices
+    for indices_list in initial_indices_lists:
+        for index in indices_list:
+            if index not in indices_dict.keys():
+                # add index to indices_dict
+                l = len(indices_dict)
+                indices_dict.update({index: letters_list[l]})
 
-    # set color bar, title, labels, ticks, and limits
-    fig.colorbar(im, cax=cax, orientation='vertical', label=colorbar_label)
+            translated_indices = translate_and_add(index, translated_indices, indices_dict)
 
-    if set_title:
-        ax.set_title(title)
+        translated_indices += ","  # in np.einsum, indices of different operands are to be separated by commas
 
-    ax.set_xlabel("$t$")
-    ax.set_ylabel("$x$")
+    translated_indices = translated_indices[:-1]  # remove last comma
+    translated_indices += "->"
 
-    ax.set_xticks(np.array([0, 1 * T // 4, 2 * T // 4, 3 * T // 4, T]),
-                  labels=[str(0), str(1 * T // 4), str(2 * T // 4), str(3 * T // 4), str(T)])
+    for index in final_indices_list:
+        translated_indices = translate_and_add(index, translated_indices, indices_dict)
 
-    ax.set_ylim([1 / 2 * T - 2, 3 / 2 * T])
-    ax.set_yticks(np.array([2 * T // 4 - 1, 3 * T // 4 - 1, T - 1, 5 * T // 4 - 1, 6 * T // 4 - 1]),
-                  labels=[str(-2 * T // 4), str(-1 * T // 4), str(0), str(1 * T // 4), str(2 * T // 4)])
-
-    # save plot
-    if save_fig_as is not None:
-        fig.savefig(save_fig_as, bbox_inches="tight")
-
-    plt.show()
+    return translated_indices
 
 
 def save_obj(obj, file_name: str) -> None:
@@ -256,60 +209,6 @@ def load_or_compute_obj(class_type, generator_function, file_name: str, all_para
     logger.info(f"Saved object of {class_type} in {file_name}.")
 
     return obj
-
-
-def einsum_subscripts(*initial_indices: str, final_indices="") -> str:
-    """
-    Convert strings of indices in *initial_indices and string of indices in **final_indices to one string suitable as
-    parameter "subscript" of numpy.einsum (see its documentation for details). (The strings can contain numbers, primes,
-    superscripts, etc. like in common physicists' notation, unlike numpy.einsum subscripts.)
-
-    Parameters:
-        *initial_indices: strings of indices for operands of numpy.einsum
-        final_indices: string of indices for result of numpy.einsum
-
-    Returns:
-        translated_indices: string of indices suitable as parameter "subscript" of numpy.einsum
-    """
-
-    # initializations
-    letters_list = list(map(chr, range(97, 123)))  # list of all letters in the alphabet
-    indices_dict = {}  # dictionary which contains to correspondences between subscripts in SB21/my notes
-                         # and subscripts conforming with the conventions/requirements of np.einsum
-    initial_indices_lists = [index.split(",") for index in initial_indices]
-    final_indices_list = final_indices.split(",")
-    translated_indices = ""
-
-    # utility function
-    def translate_and_add(index, translated_indices, indices_dict):
-        # translate index according to indices_dict and add it to string translated_indices
-        if index == "..." or index == "":
-            translated_indices += index
-
-        else:
-            translated_indices += indices_dict[index]
-
-        return translated_indices
-
-    # translate indices
-    for indices_list in initial_indices_lists:
-        for index in indices_list:
-            if index not in indices_dict.keys():
-                # add index to indices_dict
-                l = len(indices_dict)
-                indices_dict.update({index: letters_list[l]})
-
-            translated_indices = translate_and_add(index, translated_indices, indices_dict)
-
-        translated_indices += ","  # in np.einsum, indices of different operands are to be separated by commas
-
-    translated_indices = translated_indices[:-1]  # remove last comma
-    translated_indices += "->"
-
-    for index in final_indices_list:
-        translated_indices = translate_and_add(index, translated_indices, indices_dict)
-
-    return translated_indices
 
 
 class ConsistentParametersClass(ABC):
