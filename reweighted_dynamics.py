@@ -18,8 +18,31 @@ from utilities import ConsistentParametersClass
 
 
 class ReweightedDynamics(ConsistentParametersClass):
+    """
+    Class to compute reweighted dynamics and related quantities for rare trajectories of random walk with softened
+    constraint.
+    """
     def __init__(self, T: int, s: float, x_T: int, prob_step_up: float):
+        """
+        Compute reweighted dynamics and related quantities for rare trajectories of random walk with
+        softened constraint.
+
+        Parameters:
+            T: #time steps of random walk
+            s: softening parameter
+            x_T: required end point of rare trajectory
+            prob_step_up: probability to go 1 step up
+
+        Returns:
+            object of class ReweightedDynamics with reweighted dynamics P_W and related quantities
+        """
+
         super().__init__()
+
+        # asserts
+        assert T > 0, "T > 0 required"
+        assert s >= 0., "s >= 0. required"
+        assert 0. <= prob_step_up <= 1., "0 <= prob_step_up <= 1 required"
 
         # save inputs
         self.T = T
@@ -32,6 +55,7 @@ class ReweightedDynamics(ConsistentParametersClass):
 
         # extract partition function from gauge transforma
         self.partition_function_Z = self.calc_partition_function(self.gauge_transform_g, T)
+        # partition function Z is necessary for normalization of reweighted dynamics
 
         # compute reweighted dynamics from gauge transform
         self.reweighted_dynamics_P_W = self.calc_reweighted_dynamics_array(self.gauge_transform_g, T, s,
@@ -44,14 +68,14 @@ class ReweightedDynamics(ConsistentParametersClass):
 
 
     @staticmethod
-    def calc_weight_function(x: float | np.ndarray, s: float, x_T=0) -> float | np.ndarray:
+    def calc_weight_function(x: float | np.ndarray, s: float, x_T: int) -> float | np.ndarray:
         """
-        Calculate weight function W of (softened) constraint for rare trajectories with a specific final position.
+        Calculate weight function W of (softened) constraint for rare trajectories with a specified end point.
 
         Parameters:
-            x: final position of trajectory
+            x: end point of trajectory
             s: softening parameter
-            x_T: required final position of rare trajectory
+            x_T: required end point of rare trajectory
 
         Returns:
             weight function value
@@ -66,7 +90,7 @@ class ReweightedDynamics(ConsistentParametersClass):
             return np.exp(- s * (x - x_T) ** 2)
 
 
-    def calc_gauge_transform_array(self, T: int, s: float, x_T=0, prob_step_up=0.5) -> np.ndarray:
+    def calc_gauge_transform_array(self, T: int, s: float, x_T: int, prob_step_up: float) -> np.ndarray:
         """
         Calculate gauge transform g (for rare trajectories of random walk with softened constraint) via
         iterative solution of recursion equation.
@@ -76,14 +100,12 @@ class ReweightedDynamics(ConsistentParametersClass):
         Parameters:
             T: #time steps of random walk
             s: softening parameter
-            x_T: required final position of rare trajectory
+            x_T: required end point of rare trajectory
             prob_step_up: probability to go 1 step up
 
         Returns:
             g(x, t) for parameters T and s
         """
-
-        assert 0 <= prob_step_up <= 1, "0 <= prob_step_up <= 1 required"
 
         # initialization
         g_array = np.empty((T + 1, 2 * T + 1))
@@ -110,8 +132,7 @@ class ReweightedDynamics(ConsistentParametersClass):
         return g_array
 
 
-    @staticmethod
-    def calc_partition_function(gauge_transform_g: np.ndarray, T: int) -> float:
+    def calc_partition_function(self, gauge_transform_g: np.ndarray, T: int) -> float:
         """
         Extract partition function Z from gauge transform.
         For details see Rose et al. 2021 New J. Phys. 23 013013, https://doi.org/10.1088/1367-2630/abd7bd,
@@ -125,13 +146,11 @@ class ReweightedDynamics(ConsistentParametersClass):
             partition function Z
         """
 
-        assert np.shape(gauge_transform_g) == (T + 1, 2 * T + 1), "gauge_transform_g has wrong shape"
-
         return gauge_transform_g[0, T]  # corresponds to calc_g_value(x = 0, t = 0), see calc_gauge_transform_array
 
 
-    @staticmethod
-    def calc_reweighted_dynamics_array(gauge_transform_g: np.ndarray, T: int, s: float, x_T=0., prob_step_up=0.5):
+    def calc_reweighted_dynamics_array(self, gauge_transform_g: np.ndarray, T: int, s: float, x_T: int,
+                                       prob_step_up: float) -> np.ndarray:
         """
         Calculate reweighted dynamics P_W (for rare trajectories of random walk with softened constraint)
         via a gauge transform.
@@ -142,7 +161,7 @@ class ReweightedDynamics(ConsistentParametersClass):
             gauge_transform_g: array containing gauge transform values
             T: #time steps of random walk
             s: softening parameter
-            x_T: required final position of rare trajectory
+            x_T: required end point of rare trajectory
             prob_step_up: probability to go 1 step up
 
         Returns:
