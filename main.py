@@ -13,193 +13,243 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 """
 
 
+import os
+import shutil
+import numpy as np
+from logging_config import get_logger
+from policy_evaluation_and_plots import PolicyEvaluation, plot_as_heatmap, convert_dict_to_data_frame, \
+    plot_xy_vs_no_layers, plot_Fourier_coeffs
 from reweighted_dynamics import ReweightedDynamics
-from few_qubits_cases import ReinforcementLearningFits, FourierCoeffs, AllPlotsFewQubitsCases, PolicyEvaluation, \
-    PlotTableResultsFewQubitsCases
-from utilities import restore_or_compute_obj, load_and_restore_obj
+from Fourier_series_analysis_and_fits import ParameterizedDynamicsFits, FourierSeriesAnalysis
+from utilities import load_or_compute_obj, import_params_from_json5, convert_to_and_save_latex_string
+from value_functions import ValueFunction
 
-if __name__ == '__main__':
-    # parameters of computations for few-qubit cases
-    T = 20
-    s = 1
-    x_0 = 0.
-    prob_step_up = 0.5
 
-    no_qubits = 1  # 1
-    # only relevant to computations in class FourierCoeffs
-    no_samples = 10000  # 4 ** 8  # 4 ** 7  # 10 ** 3  # 100  # 1000
-    # specifies #sets of randomly chosen variational angles = #times Fourier coefficients are computed
+logger = get_logger("main.py")
 
-    no_layers = 2  # 15
-    no_fits = 100
-    no_trajectories = 1000  # 100 in combination with 1 layers shows the following interesting effect:
-    # P_theta_1_qubit.prob_rare_trajectory:  0.417
-    # P_theta_1_qubit.average_return_estimate:  -4.676786856728079
-    # > quite high average_return_estimate and (for that) quite low prob_rare_trajectory
-    set_title = False
-    recompute = True
 
-    cost_func_type = "trajectory_KL_divergence"
+def main(param_file_name: str = "config_publication.json5") -> None:
+    logger.info("Starting main script.")
 
-    # computations for few-qubit cases
-    # compute reweighted dynamics/optimal policy P_W
-    reweighted_dynamics = restore_or_compute_obj(ReweightedDynamics,
-                                                 lambda: ReweightedDynamics(T, s, x_0=x_0, prob_step_up=prob_step_up,
-                                                                            calc_value_function=False),
-                                                 "reweighted_dynamics.npz", recompute=False)
+    logger.info(f"1. Creating folders and loading parameters of computations from {param_file_name}.")
+    path_script = os.path.dirname(os.path.abspath(__file__))  # get directory of current script
+    param_folder_name = param_file_name.split(".")[0]
 
-    no_trajectories = 100000
-    # heuristic value where estimates of prob. to generate rare trajectory and of average/expected return
-    # seem to have converged
+    path_computations = os.path.join(path_script, f"results/{param_folder_name}/computations")
+    os.makedirs(path_computations, exist_ok=True)
 
-    evaluation_of_P_W = restore_or_compute_obj(PolicyEvaluation,
-                                               lambda: PolicyEvaluation(T, reweighted_dynamics.P_W_array,
-                                                                        no_trajectories, s),
-                                               "evaluation_of_P_W.npz",
-                                               recompute=False)
+    path_plots = os.path.join(path_script, f"results/{param_folder_name}/plots")
+    os.makedirs(path_plots, exist_ok=True)
 
-    print("P_W.prob_rare_trajectory: ", evaluation_of_P_W.prob_rare_trajectory)
-    print("P_W.average_return_estimate: ", evaluation_of_P_W.average_return_estimate)
+    path_config = os.path.join(path_script, f"results/{param_folder_name}")
+    shutil.copy(param_file_name, path_config)
 
-    # plot results in table comparing different parameter cases
-    """
-    #no_layers_list = [1, 2, 3, 4, 5, 10, 15]
-    no_layers_list = [2, 3, 4, 5, 10, 15]
-    
-    #min_MSE_1_qubit_list = [2.76e-3, 1.14e-3, 0.80e-3, 0.87e-3, 1.13e-3, 5.67e-3, 11.8e-3]
-    #min_MSE_2_qubits = 1.49e-1
-    #mean_MSE_1_qubit_list = [4.76e-3, 3.19e-3, 3.99e-3, 3.67e-3, 5.82e-3, 28.1e-3, 78.6e-3]
-    #mean_MSE_2_qubits = 1.49e-1
-    #std_MSE_1_qubit_list = [3.60e-3, 6.27e-3, 8.66e-3, 7.20e-3, 9.40e-3, 27.7e-3, 66.6e-3]
-    #std_MSE_2_qubits = 0.
+    params = import_params_from_json5(param_file_name)
 
-    fits_2_layers = load_and_restore_obj(ReinforcementLearningFits, 
-                                         "reinforcement_learning_few_qubits_2_layers_100_fits.npz")
-    fits_3_layers = load_and_restore_obj(ReinforcementLearningFits, 
-                                         "reinforcement_learning_few_qubits_3_layers_100_fits.npz")
-    fits_4_layers = load_and_restore_obj(ReinforcementLearningFits, 
-                                         "reinforcement_learning_few_qubits_4_layers_100_fits.npz")
-    fits_5_layers = load_and_restore_obj(ReinforcementLearningFits, 
-                                         "reinforcement_learning_few_qubits_5_layers_100_fits.npz")
-    
-    fits_10_layers = load_and_restore_obj(ReinforcementLearningFits, 
-                                         "reinforcement_learning_few_qubits_10_layers_100_fits.npz")
-    
-    fits_15_layers = load_and_restore_obj(ReinforcementLearningFits, 
-                                         "reinforcement_learning_few_qubits_15_layers_100_fits.npz")
-    
-    list_policies = [load_and_restore_obj(ReinforcementLearningFits, 
-                                         f"reinforcement_learning_few_qubits_{no_layers}_layers_100_fits.npz").vals_fitted_func_1_qubit_fourier_coeffs 
-                     for no_layers in [2, 3, 4, 5, 10, 15]]
-    
-    evaluation_policies = [PolicyEvaluation(T, policy, no_trajectories, s, 
-                                            average_return_estimate_P_W=evaluation_of_P_W.average_return_estimate)
-                           for policy in list_policies]
+    # parameters of computations (see comments in CSV file for their meaning)
+    T = params["T"]
+    s = params["s"]
+    x_T = params["x_T"]
+    prob_step_up = params["prob_step_up"]
+    no_qubits_list = params["no_qubits_list"]
+    no_samples_variational_params = params["no_samples_variational_params"]
+    no_layers_list = params["no_layers_list"]
+    no_fits = params["no_fits"]
+    fitting_parameters = params["fitting_parameters"]
+    max_optimization_steps = params["max_optimization_steps"]
+    cost_func_type = params["cost_func_type"]
+    no_trajectories_cost_func = params["no_trajectories_cost_func"]
+    no_trajectories_policy_evaluation = params["no_trajectories_policy_evaluation"]
+    policy_selection_criterion = params["policy_selection_criterion"]
+    recompute_stored = params["recompute_stored"]
 
-    min_KL_div_1_qubit_list =
-    min_KL_div_2_qubits =
-    mean_KL_div_1_qubit_list =
-    mean_KL_div_2_qubits =
-    std_KL_div_1_qubit_list =
-    std_KL_div_2_qubits =
-    prob_rare_trajectory_1_qubit_list = [0.59, 0.71, 0.76, 0.73, 0.73, 0.64, 0.47]
-    prob_rare_trajectory_2_qubits = 0.18
-    diff_prob_rare_trajectory_1_qubit_list = [evaluation_of_P_W.prob_rare_trajectory - prob
-                                              for prob in prob_rare_trajectory_1_qubit_list]
-    diff_prob_rare_trajectory_2_qubits = evaluation_of_P_W.prob_rare_trajectory - 0.18
 
-    PlotTableResultsFewQubitsCases(no_layers_list, min_KL_div_1_qubit_list, min_KL_div_2_qubits, mean_KL_div_1_qubit_list,
-                                   mean_KL_div_2_qubits, std_KL_div_1_qubit_list, std_KL_div_2_qubits,
-                                   diff_prob_rare_trajectory_1_qubit_list, diff_prob_rare_trajectory_2_qubits)
-    """
+    logger.info(f"2. Computation of reweighted dynamics.")
+    reweighted_dynamics = \
+        load_or_compute_obj(ReweightedDynamics,
+                            lambda: ReweightedDynamics(T, s, x_T, prob_step_up),
+                            f"{path_computations}/reweighted_dynamics.npz", params,
+                            recompute=recompute_stored)
 
-    """
-    # compute Fourier coefficients of parameterized dynamics
-    FourierCoeffs(no_qubits, no_layers, no_samples, random_thetas=True,
-                  optimized_fourier_coeffs=reinforcement_learning_fits.optimized_params_1_qubit_fourier_coeffs[2:-1])
-    """
 
-    # fit dynamics parameterized by Fourier coefficients to P_W
-    reinforcement_learning_fits = restore_or_compute_obj(ReinforcementLearningFits,
-                                                         lambda: ReinforcementLearningFits(reweighted_dynamics, T,
-                                                                                           no_layers, no_fits,
-                                                                                           no_trajectories,
-                                                                                           set_title=set_title,
-                                                                                           theta_fits=False,
-                                                                                           compute_in_parallel=True,
-                                                                                           cost_func_type=cost_func_type),
-                                                         "reinforcement_learning_few_qubits_" + str(no_layers) +
-                                                         "_layers_" + str(no_fits) + "_fits_" + cost_func_type + ".npz",
-                                                         recompute=recompute)
+    logger.info(f"3. Evaluation of original and reweighted dynamics.")
+    original_dynamics_P = np.where(np.isnan(reweighted_dynamics.reweighted_dynamics_P_W), np.nan, prob_step_up)
 
-    """
-    # fit dynamics parameterized by Fourier coefficients to P_W SUCCESSIVELY
-    # by repeatedly adding one data-uploading layer and 
-    # reusing optimized Fourier coefficients for one layer less as starting point for fits
-    no_fits = 1
-    reinforcement_learning_fits = restore_or_compute_obj(ReinforcementLearningFits,
-                                                         lambda: ReinforcementLearningFits(reweighted_dynamics, T,
-                                                                                           no_layers, no_fits,
-                                                                                           no_trajectories,
-                                                                                           set_title=set_title,
-                                                                                           theta_fits=False),
-                                                         "reinforcement_learning_few_qubits_" + str(no_layers) +
-                                                         "_layers_" + str(no_fits) + "_fits.npz",
-                                                         recompute=False)
+    evaluation_original_dynamics = \
+        load_or_compute_obj(PolicyEvaluation,
+                            lambda: PolicyEvaluation(T, s, x_T, prob_step_up, no_trajectories_policy_evaluation,
+                                                     policies_array=np.expand_dims(original_dynamics_P, axis=0),
+                                                     reweighted_dynamics=reweighted_dynamics),
+                            f"{path_computations}/evaluation_original_dynamics.npz", params,
+                            recompute=recompute_stored)
 
-    print(reinforcement_learning_fits.residual_mean_squared_errors_1_qubit_fourier_coeffs)
+    plot_data = convert_dict_to_data_frame(evaluation_original_dynamics.__dict__)
+    plot_as_heatmap(original_dynamics_P, "$P(x - 1 | x, t)$",
+                    save_fig_as=f"{path_plots}/P_to_go_1_step_down.pdf", plot_complement=True, plot_data=plot_data,
+                    value_limits=(0., 1.))
 
-    no_fits = 1
-    reinforcement_learning_fits_more_layers = restore_or_compute_obj(ReinforcementLearningFits,
-                                                                     lambda: ReinforcementLearningFits(reweighted_dynamics, T,
-                                                                                                       no_layers + 1,
-                                                                                                       no_fits,
-                                                                                                       no_trajectories,
-                                                                                                       set_title=set_title,
-                                                                                                       theta_fits=False,
-                                                                                                       optimized_params_fourier_coeffs=reinforcement_learning_fits.optimized_params_1_qubit_fourier_coeffs,
-                                                                                                       optimized_no_layers=no_layers),
-                                                                     "reinforcement_learning_few_qubits_" + str(no_layers + 1) +
-                                                                     "_layers_" + str(no_fits) + "_fits.npz",
-                                                                     recompute=True)
+    evaluation_reweighted_dynamics = \
+        load_or_compute_obj(PolicyEvaluation,
+                            lambda: PolicyEvaluation(T, s, x_T, prob_step_up, no_trajectories_policy_evaluation,
+                                                     reweighted_dynamics=reweighted_dynamics),
+                            f"{path_computations}/evaluation_reweighted_dynamics.npz", params,
+                            recompute=recompute_stored)
 
-    print(reinforcement_learning_fits_more_layers.residual_mean_squared_errors_1_qubit_fourier_coeffs)
-    """
+    plot_data = convert_dict_to_data_frame(evaluation_reweighted_dynamics.__dict__)
+    plot_as_heatmap(reweighted_dynamics.reweighted_dynamics_P_W, "$P_W(x - 1 | x, t)$",
+                    save_fig_as=f"{path_plots}/P_W_to_go_1_step_down.pdf", plot_complement=True, plot_data=plot_data,
+                    value_limits=(0., 1.))
 
-    # evaluation of properties of P_W and parameterized dynamics
-    no_trajectories = 100000
-    # heuristic value where estimates of prob. to generate rare trajectory and of average/expected return
-    # seem to have converged
 
-    evaluation_of_P_W = restore_or_compute_obj(PolicyEvaluation,
-                                               lambda: PolicyEvaluation(T, reweighted_dynamics.P_W_array,
-                                                                        no_trajectories, s),
-                                               "evaluation_of_P_W.npz",
-                                               recompute=False)
+    logger.info(f"4. Computation of value function for reweighted dynamics.")
+    value_function_reweighted_dynamics = \
+        load_or_compute_obj(ValueFunction,
+                            lambda: ValueFunction(reweighted_dynamics.reweighted_dynamics_P_W, T, s, x_T, prob_step_up),
+                            f"{path_computations}/value_function_reweighted_dynamics.npz", params,
+                            recompute=recompute_stored)
 
-    print("P_W.prob_rare_trajectory: ", evaluation_of_P_W.prob_rare_trajectory)
-    print("P_W.average_return_estimate: ", evaluation_of_P_W.average_return_estimate)
-    #print(evaluation_of_P_W.Kullback_Leibler_divergence_estimate)
+    plot_as_heatmap(np.log10(-value_function_reweighted_dynamics.value_func_array[:-1]),
+                    # [:1] to discard value function values V(x, T) == 0 for plotting
+                    "log$_{10}(V_{P_W}(x, t))$", save_fig_as=f"{path_plots}/V_P_W.pdf")
 
-    evaluation_of_P_theta = restore_or_compute_obj(PolicyEvaluation,
-                                               lambda: PolicyEvaluation(T, reinforcement_learning_fits.vals_fitted_func_1_qubit_fourier_coeffs,
-                                                                        no_trajectories, s),
-                                               "evaluation_of_P_theta_1_qubit_" + str(no_layers) + "_layers_"
-                                                   + str(no_fits) + "_fits_" + cost_func_type +".npz",
-                                               recompute=recompute)
 
-    print("P_theta_1_qubit.prob_rare_trajectory: ", evaluation_of_P_theta.prob_rare_trajectory)
-    print("P_theta_1_qubit.average_return_estimate: ", evaluation_of_P_theta.average_return_estimate)
+    logger.info(f"5. Symbolic calculation of Fourier coefficients for:")
+    for no_qubits in no_qubits_list:
+        for no_layers in no_layers_list:
+            if no_layers == 1:
+                # for more data-uploading layers, the symbolic Fourier coefficients are not informative and
+                # might be incorrect due to a known SymPy bug
+                logger.info(f"qubits: {no_qubits}, data-uploading layers: {no_layers}")
+                symbolic_Fourier_series_analysis = \
+                    load_or_compute_obj(FourierSeriesAnalysis,
+                                        lambda: FourierSeriesAnalysis(no_qubits, no_layers, "symbolic"),
+                                        f"{path_computations}/symbolic_Fourier_series_analysis_"
+                                        f"qubits_{no_qubits}_layers_{no_layers}.npz",
+                                        params, recompute=recompute_stored)
 
-    if no_layers == 1:
-        evaluation_of_P_theta = restore_or_compute_obj(PolicyEvaluation,
-                                                       lambda: PolicyEvaluation(T,
-                                                                                reinforcement_learning_fits.vals_fitted_func_2_qubits_fourier_coeffs,
-                                                                                no_trajectories, s),
-                                                       "evaluation_of_P_theta_2_qubits_" + str(no_layers) + "_layers_"
-                                                       + str(no_fits) + "_fits_" + cost_func_type + ".npz",
-                                                       recompute=recompute)
+                convert_to_and_save_latex_string(symbolic_Fourier_series_analysis.amp_phase_series,
+                                                 f"{path_computations}/amp_phase_series_qubits_{no_qubits}_"
+                                                 f"layers_{no_layers}.txt",
+                                                 f"Fourier series in amplitude-phase form for "
+                                                 f"#qubits: {no_qubits}, #data-uploading layers: {no_layers}")
 
-        print("P_theta_2_qubits.prob_rare_trajectory: ", evaluation_of_P_theta.prob_rare_trajectory)
-        print("P_theta_2_qubits.average_return_estimate: ", evaluation_of_P_theta.average_return_estimate)
+
+    logger.info(f"6. Numerical computation of Fourier coefficients for:")
+    for no_qubits in no_qubits_list:
+        for no_layers in no_layers_list:
+            logger.info(f"qubits: {no_qubits}, data-uploading layers: {no_layers}")
+            numeric_Fourier_series_analysis = \
+                load_or_compute_obj(FourierSeriesAnalysis,
+                                    lambda: FourierSeriesAnalysis(no_qubits, no_layers, "numeric",
+                                                                  no_samples_variational_params, random_thetas=True),
+                                    f"{path_computations}/numeric_Fourier_series_analysis_qubits_{no_qubits}_"
+                                    f"layers_{no_layers}_samples_{no_samples_variational_params}.npz",
+                                    params, recompute=recompute_stored)
+
+            plot_Fourier_coeffs(no_layers, numeric_Fourier_series_analysis.coeffs_samples_array,
+                                f"{path_plots}/Fourier_coeffs_qubits_{no_qubits}_layers_{no_layers}"
+                                f"_samples_{no_samples_variational_params}.pdf")
+
+
+    logger.info(f"7. Fitting in terms of Fourier coefficients for:")
+    parameterized_dynamics_fits_dict = {}
+
+    for no_qubits in no_qubits_list:
+        for no_layers in no_layers_list:
+            if fitting_parameters == "Fourier_coefficients" and no_qubits == 2 and no_layers > 1:
+                continue  # for no_layers > 1, fitting in terms of Fourier coefficients is the same for 1 and 2 qubits
+
+            logger.info(f"qubits: {no_qubits}, data-uploading layers: {no_layers}")
+            parameterized_dynamics_fits = \
+                load_or_compute_obj(ParameterizedDynamicsFits,
+                                    lambda: ParameterizedDynamicsFits(reweighted_dynamics.reweighted_dynamics_P_W,
+                                                                      no_qubits, no_layers, no_fits, fitting_parameters,
+                                                                      cost_func_type,
+                                                                      no_trajectories_cost_func=no_trajectories_cost_func,
+                                                                      max_optimization_steps=max_optimization_steps,
+                                                                      T=T, s=s, x_T=x_T, prob_step_up=prob_step_up,
+                                                                      optimal_average_return=np.log(reweighted_dynamics.partition_function_Z),
+                                                                      compute_in_parallel=True),
+                                    f"{path_computations}/fits_qubits_{no_qubits}_layers_{no_layers}_"
+                                    f"{cost_func_type}_fitting_parameters_{fitting_parameters}.npz", params,
+                                    recompute=recompute_stored)
+
+            parameterized_dynamics_fits_dict[f"(qubits: {no_qubits}, layers: {no_layers})"] = \
+                parameterized_dynamics_fits
+
+
+    logger.info(f"8. Evaluation of fitted policies.")
+    evaluation_fits_dict = {}
+
+    for no_qubits in no_qubits_list:
+        for no_layers in no_layers_list:
+            if no_qubits == 2 and no_layers > 1:
+                continue
+
+            policies_array = \
+                parameterized_dynamics_fits_dict[f"(qubits: {no_qubits}, layers: {no_layers})"].fitted_policies_array
+
+            evaluation_fits = \
+                load_or_compute_obj(PolicyEvaluation,
+                                    lambda: PolicyEvaluation(T, s, x_T, prob_step_up,
+                                                             no_trajectories_policy_evaluation,
+                                                             policies_array=policies_array,
+                                                             reweighted_dynamics=reweighted_dynamics,
+                                                             policy_selection_criterion=policy_selection_criterion),
+                                    f"{path_computations}/evaluation_fits_qubits_{no_qubits}_"
+                                    f"layers_{no_layers}_{cost_func_type}_fitting_parameters_{fitting_parameters}.npz",
+                                    params, recompute=recompute_stored)
+
+            evaluation_fits_dict[f"(qubits: {no_qubits}, layers: {no_layers})"] = evaluation_fits
+
+            plot_data = convert_dict_to_data_frame({"qubits": no_qubits, "layers": no_layers, "no_fits": no_fits,
+                                                    "fitting_parameters": fitting_parameters,
+                                                    "cost_func_type": cost_func_type,
+                                                    "no_trajectories_cost_func": no_trajectories_cost_func,
+                                                    "max_optimization_steps": max_optimization_steps}
+                                                   | evaluation_fits.__dict__)
+            plot_as_heatmap(policies_array[evaluation_fits.index_selected_policy], "$P_{\\theta}(x - 1 | x, t)$",
+                            save_fig_as=f"{path_plots}/selected_fit_qubits_{no_qubits}_layers_{no_layers}_"
+                                        f"{cost_func_type}_fitting_parameters_{fitting_parameters}.pdf",
+                            plot_complement=True, plot_data=plot_data,
+                            plot_mask=np.isnan(reweighted_dynamics.reweighted_dynamics_P_W), value_limits=(0., 1.))
+
+
+    logger.info(f"9. Generation of overview plot.")
+    # initialize lists for plotting
+    min_KL_1_qubit_list = \
+        [evaluation_fits_dict[f"(qubits: 1, layers: {no_layers})"].min_Kullback_Leibler_divergence_estimate
+         for no_layers in no_layers_list]
+    min_KL_2_qubits = evaluation_fits_dict[f"(qubits: 2, layers: 1)"].min_Kullback_Leibler_divergence_estimate
+    mean_KL_1_qubit_list = \
+        [evaluation_fits_dict[f"(qubits: 1, layers: {no_layers})"].mean_Kullback_Leibler_divergence_estimate
+         for no_layers in no_layers_list]
+    mean_KL_2_qubits = evaluation_fits_dict[f"(qubits: 2, layers: 1)"].mean_Kullback_Leibler_divergence_estimate
+    std_KL_1_qubit_list = \
+        [evaluation_fits_dict[f"(qubits: 1, layers: {no_layers})"].std_Kullback_Leibler_divergence_estimate
+         for no_layers in no_layers_list]
+    std_KL_2_qubits = evaluation_fits_dict[f"(qubits: 2, layers: 1)"].std_Kullback_Leibler_divergence_estimate
+    min_diff_prob_rare_trajectory_1_qubit_list = \
+        [(evaluation_reweighted_dynamics.prob_rare_trajectory
+          - evaluation_fits_dict[f"(qubits: 1, layers: {no_layers})"].prob_rare_trajectory_selected)
+         for no_layers in no_layers_list]
+    min_diff_prob_rare_trajectory_2_qubits = \
+        (evaluation_reweighted_dynamics.prob_rare_trajectory
+         - evaluation_fits_dict[f"(qubits: 2, layers: 1)"].prob_rare_trajectory_selected)
+
+    # plot results
+    plot_xy_vs_no_layers(no_layers_list, "$D(P_{\\theta}\Vert P_W)$",
+                         "$\Delta P(x_T = 0)$", "min",
+                         min_KL_1_qubit_list, min_KL_2_qubits, mean_KL_1_qubit_list, mean_KL_2_qubits,
+                         std_KL_1_qubit_list, std_KL_2_qubits,
+                         min_diff_prob_rare_trajectory_1_qubit_list, min_diff_prob_rare_trajectory_2_qubits,
+                         save_fig_as=f"{path_plots}/plot_table_results_Fourier_series_fits.pdf")
+
+
+    logger.info("Main script finished.")
+    return
+
+
+if __name__ == "__main__":
+    main()
 
