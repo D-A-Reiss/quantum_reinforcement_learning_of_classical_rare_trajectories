@@ -17,8 +17,6 @@ import warnings
 import numpy as np
 import matplotlib as mpl
 import pandas as pd
-from types import NoneType
-from typing import Dict, Tuple, List
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.backends.backend_pdf import PdfPages
@@ -48,7 +46,7 @@ mpl.rcParams['axes.formatter.use_mathtext'] = True  # use mathtext for axis form
 logger = get_logger("policy_evaluation_and_plots.py")
 
 
-def convert_dict_to_data_frame(data: Dict) -> pd.DataFrame:
+def convert_dict_to_data_frame(data: dict) -> pd.DataFrame:
     """
     Convert dictionary to pandas.DataFrame with columns "parameter" and "value" and parameters ordered alphabetically.
 
@@ -75,7 +73,7 @@ def convert_dict_to_data_frame(data: Dict) -> pd.DataFrame:
 
 def plot_as_heatmap(two_dim_array: np.ndarray, colorbar_label: str, title="", save_fig_as="",
                     plot_mask: np.ndarray = None, plot_complement=False, plot_data: pd.DataFrame = None,
-                    value_limits: Tuple[float, float] = None) -> None:
+                    value_limits: tuple[float, float] = None) -> None:
     """
     Plot 2D array as function of t and x in form of a heatmap and save it as PDF.
 
@@ -202,6 +200,9 @@ def plot_Fourier_coeffs(no_layers: int, coeffs_samples: np.ndarray, save_fig_as:
             ax[m, n].set_ylim(-1, 1)
             ax[m, n].set_xlim(-1, 1)
 
+    fig.add_subplot(111, frameon=False)
+    # hide tick and tick label of the big axis
+    plt.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
     plt.xlabel('real part')
     plt.ylabel('imaginary part')
 
@@ -334,8 +335,6 @@ def plot_xy_vs_no_layers(no_layers_list: list, quantity_x_label: str, quantity_y
     # hide tick and tick label of the big axis
     plt.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
     plt.xlabel('# data-uploading layers')
-
-    #ax2.legend(loc='upper right', fontsize=12)  # , labels=['Quantity 1', 'Quantity 2'])
 
     fig.tight_layout()
 
