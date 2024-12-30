@@ -55,7 +55,7 @@ def convert_to_and_save_latex_string(sympy_expr: sp.Expr, file_name: str, commen
 
     latex_string = sp.latex(sympy_expr, mode='inline')
 
-    with open('file.txt', 'w') as file:
+    with open(file_name, 'w') as file:
         file.write(latex_string + '\n')
         file.write(comment + '\n')
 
@@ -278,7 +278,7 @@ class ConsistentParametersClass(ABC):
 
 class ProgressBar:
     """
-    Class to create and update a progress bar for a task with a given number of steps
+    Class to create and update a progress bar for a task with a given number of steps.
     """
 
     def __init__(self, total_no_steps: int | None = None, task_description: str = ""):
