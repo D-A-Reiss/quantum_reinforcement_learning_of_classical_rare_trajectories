@@ -215,7 +215,8 @@ def load_and_restore_obj(class_type, file_name: str, all_params_dict: dict):
     return obj
 
 
-def load_or_compute_obj(class_type, generator_function, file_name: str, all_params_dict: dict, recompute=False):
+def load_or_compute_obj(class_type, generator_function, file_name: str, all_params_dict: dict, load=True,
+                        recompute=False):
     """
     Load and restore an object of class class_type from a file file_name if it exists,
     otherwise compute it and save it to the file.
@@ -224,6 +225,7 @@ def load_or_compute_obj(class_type, generator_function, file_name: str, all_para
         class_type: class
         generator_function: function that generates the object
         file_name: string ending with '.npz'
+        load: if True, load the object from the file if it exists
         recompute: if True, recompute the object even if it exists in the file and overwrite the file
 
     Returns:
@@ -233,9 +235,14 @@ def load_or_compute_obj(class_type, generator_function, file_name: str, all_para
     if not recompute:
         try:
             obj = load_and_restore_obj(class_type, file_name, all_params_dict)
-            logger.info(f"Loaded object of class {class_type} from {file_name}.")
 
-            return obj
+            if load:
+                logger.info(f"Loaded object of class {class_type} from {file_name}.")
+                return obj
+
+            else:
+                logger.info(f"Object of class {class_type} in {file_name} exists, but not loaded.")
+                return
 
         except FileNotFoundError:
             logger.info(f"File {file_name} not found.")

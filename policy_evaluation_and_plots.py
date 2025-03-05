@@ -14,6 +14,8 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 
 
 import warnings
+from audioop import reverse
+
 import numpy as np
 import matplotlib as mpl
 import pandas as pd
@@ -41,6 +43,10 @@ mpl.rcParams["ytick.labelsize"] = global_size
 plt.rcParams.update({"font.size": font_size})
 plt.rcParams['axes.unicode_minus'] = False
 mpl.rcParams['axes.formatter.use_mathtext'] = True  # use mathtext for axis formatting
+
+
+# define color-blind-friendly palette
+colors = ['#0072B2', '#E97B33', '#009E73', '#CC79A7', '#F0E442', '#56B4E9']
 
 
 logger = get_logger("policy_evaluation_and_plots.py")
@@ -160,7 +166,8 @@ def plot_as_heatmap(two_dim_array: np.ndarray, colorbar_label: str, title="", sa
             plt.close()
 
 
-def plot_Fourier_coeffs(no_layers: int, coeffs_samples: np.ndarray, save_fig_as: str) -> None:
+def plot_Fourier_coeffs(no_layers: int, coeffs_samples: np.ndarray, save_fig_as: str,
+                        second_coeffs_samples: np.ndarray = None) -> None:
     """
     Visualize Fourier coefficients as scatter plot.
     This function consists of code adjusted from the PennyLane demo by Schuld and Meyer
@@ -171,6 +178,7 @@ def plot_Fourier_coeffs(no_layers: int, coeffs_samples: np.ndarray, save_fig_as:
         coeffs_samples: coeffs_samples[j, m, n] contains the Fourier coefficient c_{m - no_layers, n} for frequency
                         n_x = m - no_layers and n_t = n of the j-th sample
         save_fig_as: name of PDF file to save plot
+        second_coeffs_samples: if not None, second set of Fourier coefficients to be plotted
 
     Returns:
         None
@@ -182,14 +190,28 @@ def plot_Fourier_coeffs(no_layers: int, coeffs_samples: np.ndarray, save_fig_as:
     coeffs_real = np.real(coeffs_samples)
     coeffs_imag = np.imag(coeffs_samples)
 
+    if second_coeffs_samples is not None:
+        _, no_x_2, no_t_2 = second_coeffs_samples.shape
+
+        assert no_x == no_t_2, ("coeffs_samples and second_coeffs_samples do not have consistent shapes for current "
+                                "version of plotting both")
+
+        coeffs_real_2 = np.real(second_coeffs_samples)
+        coeffs_imag_2 = np.imag(second_coeffs_samples)
+
     # plot Fourier coefficients
     if no_layers == 1:
-        edge_color = "red"
+        edge_color = colors[0]
 
     else:
-        edge_color = "green"
+        edge_color = colors[1]
 
-    fig, ax = plt.subplots(no_x, no_t, figsize=(2 * no_t, 2 * no_x), squeeze=False)
+    if second_coeffs_samples is None:
+        fig, ax = plt.subplots(no_x, no_t, figsize=(2 * no_t, 2 * no_x), squeeze=False)
+
+    else:
+        fig, ax = plt.subplots(no_x, no_t + no_x_2, figsize=(2 * (no_t + no_x_2), 2 * no_x),
+                               squeeze=False)
 
     for m in range(no_x):
         for n in range(no_t):
@@ -200,6 +222,17 @@ def plot_Fourier_coeffs(no_layers: int, coeffs_samples: np.ndarray, save_fig_as:
             ax[m, n].set_ylim(-1, 1)
             ax[m, n].set_xlim(-1, 1)
 
+    if second_coeffs_samples is not None:
+        for m in range(no_x_2):
+            for n in range(no_t_2):
+                ax[n, no_t + m].set_title("$c_{" + str(m - no_layers) + str(n) + "}$")
+                ax[n, no_t + m].scatter(coeffs_real_2[:, m, n], coeffs_imag_2[:, m, n], s=20,
+                                 facecolor='white', edgecolor=colors[1])
+                ax[n, no_t + m].set_aspect("equal")
+                ax[n, no_t + m].set_ylim(-1, 1)
+                ax[n, no_t + m].set_xlim(-1, 1)
+
+    # set labels
     fig.add_subplot(111, frameon=False)
     # hide tick and tick label of the big axis
     plt.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
@@ -253,7 +286,7 @@ def plot_xy_vs_no_layers(no_layers_list: list, quantity_x_label: str, quantity_y
     plt.subplots_adjust(wspace=0.15)  # adjusts width between subplots
 
     # plot quantity x with error bars
-    color = 'tab:red'
+    color = colors[0]
 
     for ax in axes_1:
         ax.errorbar(no_layers_list, opt_x_1_qubit_list, fmt='D', color=color)
@@ -266,7 +299,7 @@ def plot_xy_vs_no_layers(no_layers_list: list, quantity_x_label: str, quantity_y
     axes_2 = [ax.twinx() for ax in axes_1]
 
     # plot quantity y
-    color = 'tab:green'
+    color = colors[1]
 
     for ax in axes_2:
         ax.errorbar(no_layers_list, opt_y_1_qubit_list, fmt='s', color=color)
@@ -317,14 +350,14 @@ def plot_xy_vs_no_layers(no_layers_list: list, quantity_x_label: str, quantity_y
     axes_1[0].set_yticklabels([f"{x:.2f}" for x
                                in [0., tick_step, 2 * tick_step, 3 * tick_step, 4 * tick_step, 5 * tick_step]])
 
-    color = 'tab:red'
+    color = colors[0]
     axes_1[0].set_ylabel(quantity_x_label, color=color)
     axes_1[0].tick_params(axis='y', labelcolor=color, which='both',
                           labelleft=True, left=True, labelright=False, right=False)
     axes_1[1].tick_params(axis='y', labelleft=False, left=False, labelright=False, right=False)
     axes_1[2].tick_params(axis='y', labelleft=False, left=False, labelright=False, right=False)
 
-    color = 'tab:green'
+    color = colors[1]
     axes_2[2].set_ylabel(quantity_y_label, color=color)
     axes_2[0].tick_params(axis='y', labelleft=False, left=False, labelright=False, right=False)
     axes_2[1].tick_params(axis='y', labelleft=False, left=False, labelright=False, right=False)

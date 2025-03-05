@@ -125,16 +125,21 @@ def main(param_file_name: str = "config_publication.json5") -> None:
                                         lambda: FourierSeriesAnalysis(no_qubits, no_layers, "symbolic"),
                                         f"{path_computations}/symbolic_Fourier_series_analysis_"
                                         f"qubits_{no_qubits}_layers_{no_layers}.npz",
-                                        params, recompute=recompute_stored)
+                                        params, recompute=recompute_stored, load=True)
+                # use load=False to avoid loading object from file in case of memory issues
 
-                convert_to_and_save_latex_string(symbolic_Fourier_series_analysis.amp_phase_series,
-                                                 f"{path_computations}/amp_phase_series_qubits_{no_qubits}_"
-                                                 f"layers_{no_layers}.txt",
-                                                 f"Fourier series in amplitude-phase form for "
-                                                 f"#qubits: {no_qubits}, #data-uploading layers: {no_layers}")
+                if symbolic_Fourier_series_analysis is not None:
+                    convert_to_and_save_latex_string(symbolic_Fourier_series_analysis.amp_phase_series,
+                                                     f"{path_computations}/amp_phase_series_qubits_{no_qubits}_"
+                                                     f"layers_{no_layers}.txt",
+                                                     f"Fourier series in amplitude-phase form for "
+                                                     f"#qubits: {no_qubits}, #data-uploading layers: {no_layers}")
 
 
     logger.info(f"6. Numerical computation of Fourier coefficients for:")
+    numeric_Fourier_series_analysis_1_layer = None
+    numeric_Fourier_series_analysis_2_layers = None
+
     for no_qubits in no_qubits_list:
         for no_layers in no_layers_list:
             logger.info(f"qubits: {no_qubits}, data-uploading layers: {no_layers}")
@@ -144,11 +149,26 @@ def main(param_file_name: str = "config_publication.json5") -> None:
                                                                   no_samples_variational_params, random_thetas=True),
                                     f"{path_computations}/numeric_Fourier_series_analysis_qubits_{no_qubits}_"
                                     f"layers_{no_layers}_samples_{no_samples_variational_params}.npz",
-                                    params, recompute=recompute_stored)
+                                    params, recompute=recompute_stored, load=True)
+            # use load=False to avoid loading object from file in case of memory issues
 
-            plot_Fourier_coeffs(no_layers, numeric_Fourier_series_analysis.coeffs_samples_array,
-                                f"{path_plots}/Fourier_coeffs_qubits_{no_qubits}_layers_{no_layers}"
-                                f"_samples_{no_samples_variational_params}.pdf")
+            if numeric_Fourier_series_analysis is not None:
+                plot_Fourier_coeffs(no_layers, numeric_Fourier_series_analysis.coeffs_samples_array,
+                                    f"{path_plots}/Fourier_coeffs_qubits_{no_qubits}_layers_{no_layers}"
+                                    f"_samples_{no_samples_variational_params}.pdf")
+
+            # produce plots in publication
+            if no_layers == 1:
+                numeric_Fourier_series_analysis_1_layer = numeric_Fourier_series_analysis
+            if no_layers == 2:
+                numeric_Fourier_series_analysis_2_layers = numeric_Fourier_series_analysis
+
+            if numeric_Fourier_series_analysis_1_layer is not None and \
+                    numeric_Fourier_series_analysis_2_layers is not None:
+                plot_Fourier_coeffs(1, numeric_Fourier_series_analysis_1_layer.coeffs_samples_array,
+                                    f"{path_plots}/Fourier_coeffs_qubits_{no_qubits}_layers_1_and_2"
+                                    f"_samples_{no_samples_variational_params}.pdf",
+                                    second_coeffs_samples=numeric_Fourier_series_analysis_2_layers.coeffs_samples_array)
 
 
     logger.info(f"7. Fitting in terms of Fourier coefficients for:")
