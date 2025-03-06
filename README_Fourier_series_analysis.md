@@ -24,18 +24,18 @@ pip install -r requirements.txt
 
 ## Usage
 
-In order to reproduce all results of this code including the plots used in the publication, run the script "main.py" 
+In order to reproduce all results of this code including the plots used in the publication, run the script "main_Fourier_series_analysis.py" 
 in the terminal or console:
 
 ```
-python3 main.py
+python3 main_Fourier_series_analysis.py
 ```
 
 If you wish, you can change the configuration parameters for the features listed above in the configfile 
 "config_publication.json5" (for the meaning of the parameters see the comments therein).  
 In order to keep track of your changes, it might be advisable to copy "config_publication.json5", rename it, 
 change the parameters in the renamed configfile and change the keyword argument "param_file_name" in the 
-function call "main()" in main.py accordingly.
+function call "main()" in main_Fourier_series_analysis.py accordingly.
 
 When you run the script, the steps of the computations conducted and some details will be logged, by default in the file 
 "script.log".  
@@ -44,7 +44,7 @@ The name of the logfile as well as the logging level can be changed in the file 
 For the most time-consuming steps a progress bar is printed in the terminal (note that the estimation 
 of the remaining time needed might not be accurate, especially when the computations are parallelized).
 
-Each run of "main.py" with a differently named configfile (explained above) generates a folder of the same 
+Each run of "main_Fourier_series_analysis.py" with a differently named configfile (explained above) generates a folder of the same 
 name in the folder "results" with all the data generated during the script run. The resulting folder contains the 
 following:
 * configfile (default: "config_publication.json5")
@@ -57,9 +57,9 @@ When you interrupt the script, rerun it with the same configfile, and the config
 via the function load_or_compute_obj(..., recompute=recompute_stored); if you want to recompute all results, set 
 "recompute_stored" = true.  
 If you want to recompute only some of the results, you have to manually set "recompute=True" in the respective function 
-calls in "main.py".
+calls in "main_Fourier_series_analysis.py".
 
-The other Python files provide the classes and functions used in "main.py" and are named according to their 
+The other Python files provide the classes and functions used in "main_Fourier_series_analysis.py" and are named according to their 
 respective functionality.
 
 **Feature planned for the future:** If you want to test yourself the implemented non-standard algorithms most important for this code, run the following
