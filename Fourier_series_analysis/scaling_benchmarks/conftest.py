@@ -23,6 +23,15 @@ from config_template import Config
 from benchmark_utilities import BenchmarkUtilities
 
 
+def pytest_addoption(parser):
+    parser.addoption("--T", action="store", default=None, help="Value for x")
+
+
+@pytest.fixture
+def T(request):
+    return request.config.getoption("--T")
+
+
 @pytest.fixture(scope="session")
 def config_reweighted_dynamics_benchmark():
     return BenchmarkUtilities._get_config_benchmark("config_reweighted_dynamics_scaling_time_horizon.json5")

@@ -12,17 +12,9 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER I
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 """
 import argparse
-import copy
-import json
-import math
-import warnings
-import json5
+import multiprocessing
 import pytest
 import sys
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-from typing import Any
 from pathlib import Path
 
 main_directory = Path(__file__).resolve().parent.parent
@@ -35,15 +27,13 @@ from utilities import save_obj, prepare_results_dir, get_file_names_with_version
 from benchmark_utilities import BenchmarkUtilities
 
 
-# tests
-@pytest.mark.parametrize("T", BenchmarkUtilities._get_config_benchmark("config_reweighted_dynamics_scaling_time_horizon.json5")["T"])
+# benchark functions
 def test_reweighted_dynamics_scaling_time_horizon(T, config_reweighted_dynamics_benchmark, benchmark):
     config = BenchmarkUtilities._get_config(config_reweighted_dynamics_benchmark, T)
 
     benchmark(lambda: BenchmarkUtilities._compute_reweighted_dynamics(config))
 
 
-@pytest.mark.parametrize("T", BenchmarkUtilities._get_config_benchmark("config_parameterized_dynamics_fits_scaling_time_horizon.json5")["T"])
 def test_parameterized_dynamics_fits_scaling_time_horizon(T, config_parameterized_dynamics_fits_benchmark,
                                                           required_min_residual_cost, benchmark,
                                                           save_result=True):
@@ -89,25 +79,49 @@ def test_parameterized_dynamics_fits_scaling_time_horizon(T, config_parameterize
                                                                                        compute_in_parallel=False))
 
 
+# utility functions
+def run_pytest_benchmark_for_T(T, benchmark_func: str):
+    benchmark = "_".join(benchmark_func.split("_")[1:])
+    return pytest.main([__file__,
+                        "-k", benchmark_func,
+                        "--benchmark-enable", "--benchmark-only",
+                        f"--benchmark-json=data_{benchmark}.json",
+                        "--benchmark-min-rounds=2",
+                        f"--T={T}"])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run scaling benchmarks with optional specification of benchmark.")
     parser.add_argument("--benchmarks", type=str, default="all",
                         help="Benchmarks to be executed (default: 'all'; options: 'all', "
                              "'test_reweighted_dynamics_scaling_time_horizon', "
                              "'test_parameterized_dynamics_fits_scaling_time_horizon')")
-    benchmarks = parser.parse_args().benchmarks
-    benchmark_utils = BenchmarkUtilities
+    parser.add_argument("--run_in_parallel", type=str, default="False",
+                        help="Execute benchmarks for different parameter values in parallel (default: 'True'; "
+                             "options: 'True', 'False')")
+    args = parser.parse_args()
+    benchmarks = args.benchmarks
+    run_in_parallel = args.run_in_parallel
+    run_in_parallel = True if run_in_parallel.lower() == "true" else False
 
+    benchmark_utils = BenchmarkUtilities
 
     # run scaling benchmarks and plot results if this script is executed directly
     if benchmarks == "all" or benchmarks == "test_reweighted_dynamics_scaling_time_horizon":
-        print("Running benchmark for reweighted dynamics scaling with time horizon...")
+        print("Running benchmark for reweighted dynamics scaling with time horizon T...")
 
-        pytest.main([__file__,
-                     "-k", "test_reweighted_dynamics_scaling_time_horizon",
-                     "--benchmark-enable", "--benchmark-only",
-                     "--benchmark-json=data_reweighted_dynamics_scaling_time_horizon.json",
-                     "--benchmark-min-rounds=2"])
+        config_benchmark = benchmark_utils._get_config_benchmark(
+            "config_reweighted_dynamics_scaling_time_horizon.json5")
+        T_list = config_benchmark["T"]
+
+        if run_in_parallel:
+            with multiprocessing.Pool() as pool:
+                pool.starmap(run_pytest_benchmark_for_T,
+                             [(T, "test_reweighted_dynamics_scaling_time_horizon") for T in T_list])
+
+        else:
+            for T in T_list:
+                run_pytest_benchmark_for_T(T, "test_reweighted_dynamics_scaling_time_horizon")
 
         df = benchmark_utils._load_results('data_reweighted_dynamics_scaling_time_horizon.json')
         benchmark_utils._plot_results(df, "plot_reweighted_dynamics_scaling_time_horizon.pdf",
@@ -115,12 +129,16 @@ if __name__ == "__main__":
 
 
     if benchmarks == "all" or benchmarks == "test_parameterized_dynamics_fits_scaling_time_horizon":
-        print("Running benchmark for parameterized dynamics fits scaling with time horizon...")
+        print("Running benchmark for parameterized dynamics fits scaling with time horizon T...")
 
-        pytest.main([__file__,
-                     "-k", "test_parameterized_dynamics_fits_scaling_time_horizon",
-                     "--benchmark-enable", "--benchmark-only",
-                     "--benchmark-json=data_parameterized_dynamics_fits_scaling_time_horizon.json"])
+        if run_in_parallel:
+            with multiprocessing.Pool() as pool:
+                pool.starmap(run_pytest_benchmark_for_T,
+                             [(T, "test_parameterized_dynamics_fits_scaling_time_horizon") for T in T_list])
+
+        else:
+            for T in T_list:
+                run_pytest_benchmark_for_T(T, "test_parameterized_dynamics_fits_scaling_time_horizon")
 
         df = benchmark_utils._load_results('data_parameterized_dynamics_fits_scaling_time_horizon.json')
         config_benchmark = benchmark_utils._get_config_benchmark("config_parameterized_dynamics_fits_scaling_time_horizon.json5")
