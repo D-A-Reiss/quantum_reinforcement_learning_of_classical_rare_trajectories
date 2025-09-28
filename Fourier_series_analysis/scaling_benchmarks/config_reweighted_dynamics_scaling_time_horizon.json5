@@ -10,7 +10,7 @@
     // list of #qubits in the parameterized quantum circuit (PQC)
     "no_qubits_list": [1],
     // list of #data-uploading layers in the PQC
-    "no_layers_list": [2],
+    "no_layers_list": [3],
     // #sets of randomly chosen initial values for fitting parameters = #times policies/parameterized probs. are fitted to reweighted probs. P_W
     "no_fits_first_T_value": 10,
     // fitting parameters to be used (either 'Fourier_coefficients' or 'variational_angles' or 'random_Fourier_features')
