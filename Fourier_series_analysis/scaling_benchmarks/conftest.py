@@ -44,6 +44,7 @@ def config_parameterized_dynamics_fits_benchmark():
 
 @pytest.fixture(scope="session")
 def required_min_residual_cost(config_parameterized_dynamics_fits_benchmark):
+    # TODO: different fixture for each no_layers value -> different scope needed?
     config = BenchmarkUtilities._get_config(config_parameterized_dynamics_fits_benchmark,
                                             config_parameterized_dynamics_fits_benchmark["T"][0])
     reweighted_dynamics = BenchmarkUtilities._compute_reweighted_dynamics(config)

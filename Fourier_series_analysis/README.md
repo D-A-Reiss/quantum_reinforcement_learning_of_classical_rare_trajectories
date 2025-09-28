@@ -1,3 +1,5 @@
+# TODO: update this README.md file also with changes in other branch; add options to install dependencies via uv
+
 # Quantum reinforcement learning of classical rare dynamics: analysis via Fourier series
 
 This repository contains the code used in the publication "Quantum reinforcement learning (QRL) of classical rare dynamics:
@@ -17,13 +19,14 @@ The code includes the following features (for more details see the publication):
 
 Before running the script, make sure you installed Python 3.10 or higher and install the Python modules listed in 
 "requirements.txt":
+# TODO: reformulate all following terminal commands to be relative to the root of the repository
 
 ```bash
 pip install -r requirements.txt
 ```
 
 
-## Usage
+## Use
 
 In order to reproduce all results of this code including the plots used in the publication, run the script "main.py" 
 in the terminal or console,
@@ -86,6 +89,13 @@ pytest test_reweighted_dynamics.py
 
 ```
 pytest test_value_functions.py
+```
+
+## Scaling benchmarks
+# TODO
+
+```
+pytest Fourier_series_analysis/scaling_benchmarks/scaling_time_horizon_benchmarks.py
 ```
 
 ## Author and acknowledgements

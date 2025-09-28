@@ -91,6 +91,11 @@ def run_pytest_benchmark_for_T(T, benchmark_func: str):
 
 
 if __name__ == "__main__":
+    # TODO: add benchmark runs for random Fourier features
+    #  -> separate, analogous plot
+    # TODO: add benchmark runs for different no_layers values
+    #  -> insert them into the same plot, but with different color for each no_layers value
+    # TODO: implement process bar with tqdm for parallel runs
     parser = argparse.ArgumentParser(description="Run scaling benchmarks with optional specification of benchmark.")
     parser.add_argument("--benchmarks", type=str, default="all",
                         help="Benchmarks to be executed (default: 'all'; options: 'all', "
@@ -105,14 +110,13 @@ if __name__ == "__main__":
     run_in_parallel = True if run_in_parallel.lower() == "true" else False
 
     benchmark_utils = BenchmarkUtilities
+    config_benchmark = benchmark_utils._get_config_benchmark(
+        "config_reweighted_dynamics_scaling_time_horizon.json5")
+    T_list = config_benchmark["T"]
 
     # run scaling benchmarks and plot results if this script is executed directly
     if benchmarks == "all" or benchmarks == "test_reweighted_dynamics_scaling_time_horizon":
         print("Running benchmark for reweighted dynamics scaling with time horizon T...")
-
-        config_benchmark = benchmark_utils._get_config_benchmark(
-            "config_reweighted_dynamics_scaling_time_horizon.json5")
-        T_list = config_benchmark["T"]
 
         if run_in_parallel:
             with multiprocessing.Pool() as pool:
